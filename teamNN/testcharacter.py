@@ -10,18 +10,19 @@ from math import sqrt
 class TestCharacter(CharacterEntity):
 
     def do(self, wrld):
-        start = (1, 0)
-        goal = (wrld.exitcell[0] -1 , wrld.exitcell[1])
+        start = (0, 0)
+        goal = (self.exitcell[0] , self.exitcell[1])
 
         print(f"Start: {start}, Goal: {goal}")
 
         my_path = self.astar(wrld, start, goal)
         print(f"Path: {my_path}")
 
-        if len(my_path) > 1:
-            x2, y2 = my_path[1]
+        for i in range(1, len(my_path)):
+            x2, y2 = my_path[i]
             print(f"Moving to: {x2}, {y2}")
             self.move(x2 - start[0], y2 - start[1])
+            start = (x2, y2)
 
     def find_neighbors(self, wrld, current: tuple[int, int]) -> list[tuple[int, int]]:
         neighbors = []
