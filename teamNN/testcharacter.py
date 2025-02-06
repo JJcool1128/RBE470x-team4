@@ -6,12 +6,15 @@ from entity import CharacterEntity
 from colorama import Fore, Back
 from queue import PriorityQueue
 from math import sqrt
+from game import Game
 
 class TestCharacter(CharacterEntity):
+    print("TestCharacter class loaded!")
 
     def do(self, wrld):
+        print("Do() called!")
         start = (0, 0)
-        goal = (self.exitcell[0] , self.exitcell[1])
+        goal = (wrld.exitcell[0] , wrld.exitcell[1])
 
         print(f"Start: {start}, Goal: {goal}")
 
@@ -24,6 +27,32 @@ class TestCharacter(CharacterEntity):
             self.move(x2 - start[0], y2 - start[1])
             start = (x2, y2)
 
+        if start == goal:
+            print("Reached the goal!")
+
+        # print("Do() called!")
+        # start = (0, 0)
+        # goal = (wrld.exitcell[0], wrld.exitcell[1])
+
+        # print(f"Start Position: {start}, Goal: {goal}")  # Debugging
+
+        # # Find the best path using A*
+        # my_path = self.astar(wrld, start, goal)
+
+        # if not my_path:
+        #     print("No path found!")
+        #     return None
+
+        # print(f"Generated Path: {my_path}")  # Debugging
+
+        # # Move one step towards the goal
+        # if len(my_path) > 1:  # Ignore if already at the goal
+        #     x2, y2 = my_path[1]  # Next step in the path
+        #     dx, dy = x2 - start[0], y2 - start[1]
+        #     print(f"Moving to: ({dx}, {dy})")  # Debugging
+        #     self.move(dx, dy)  # Move in the calculated direction
+
+    print("finding neighbors")
     def find_neighbors(self, wrld, current: tuple[int, int]) -> list[tuple[int, int]]:
         neighbors = []
         a, b = current
@@ -33,17 +62,23 @@ class TestCharacter(CharacterEntity):
             (0, -1),  # down
             (1, 0),   # right
             (-1, 0)  # left
+            # (1, 1),   # diagonal bottom-right
+            # (-1, -1), # diagonal top-left
+            # (1, -1),  # diagonal bottom-left
+            # (-1, 1)   # diagonal top-right
         ]
-
+        #print(f"Current: {current}")
         for dx, dy in directions:
             nx = a + dx
             ny = b + dy
             if 0 <= nx < wrld.width() and 0 <= ny < wrld.height() and not wrld.wall_at(nx, ny):
                 neighbors.append((nx, ny))
 
+        #print(f"Neighbors: {neighbors}")
         return neighbors
 
 
+    print("heuristic")
     def heuristic(self, a: tuple[int, int], b: tuple[int, int]) -> int:
         ax = a[0]
         ay = a[1]
@@ -53,6 +88,7 @@ class TestCharacter(CharacterEntity):
 
         return abs(ax - bx) + abs(ay - by) # Manhattan distance
     
+    print("cost")
     def cost(self, a: tuple[int, int], b: tuple[int, int]) -> int:
         ax = a[0]
         ay = a[1]
@@ -62,9 +98,13 @@ class TestCharacter(CharacterEntity):
         final_cost = sqrt(pow(ax-bx, 2) + pow(ay-by, 2)) # Euclidean distance
         return final_cost 
 
-    def astar(self, wlrd, start: tuple[int,int], goal: tuple[int,int]) -> list[tuple[int,int]]:
+    print("astar")
+    def astar(self, wrld, start: tuple[int,int], goal: tuple[int,int]) -> list[tuple[int,int]]:
+        print("A* called!")
         frontier = PriorityQueue()
-        frontier.put(0, start)
+        #print(f"A* Start: {start} (Type: {type(start)}) | Goal: {goal} (Type: {type(goal)})")
+
+        frontier.put((0, start))
         came_from = {}
         cost_so_far = {}
         cost_so_far[start] = 0
@@ -76,12 +116,12 @@ class TestCharacter(CharacterEntity):
             if current == goal:
                 break
 
-            for next in self.find_neighbors(current):
+            for next in self.find_neighbors(wrld, current):
                 new_cost = cost_so_far[current] + self.cost(current, next)
                 if next not in cost_so_far or new_cost < cost_so_far[next]:
                     cost_so_far[next] = new_cost
                     priority = new_cost + self.heuristic(goal, next)
-                    frontier.put(next, priority)
+                    frontier.put((priority, next))
                     came_from[next] = current
         path = []
         current = goal
@@ -95,5 +135,8 @@ class TestCharacter(CharacterEntity):
 
 
     
+        
+
+
         
 
