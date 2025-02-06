@@ -7,13 +7,15 @@ from colorama import Fore, Back
 from queue import PriorityQueue
 from math import sqrt
 from game import Game
+from state_machine import GameState, State, ReachGoal, AvoidMonster, AvoidAgressiveMonsters, AvoidTwoMonsters, StateMachine
 
 class TestCharacter(CharacterEntity):
     print("TestCharacter class loaded!")
 
     def do(self, wrld):
         print("Do() called!")
-        start = (0, 0)
+        print(wrld)
+        start = (self.x, self.y)
         goal = (wrld.exitcell[0] , wrld.exitcell[1])
 
         print(f"Start: {start}, Goal: {goal}")
@@ -21,13 +23,31 @@ class TestCharacter(CharacterEntity):
         my_path = self.astar(wrld, start, goal)
         print(f"Path: {my_path}")
 
-        for i in range(1, len(my_path)):
-            x2, y2 = my_path[i]
-            print(f"Moving to: {x2}, {y2}")
-            self.move(x2 - start[0], y2 - start[1])
-            start = (x2, y2)
+        if not my_path or len(my_path) < 2:
+            print("No valid path found or already at goal.")
+            return None
 
-        if start == goal:
+        next_step = my_path[1]  # Get the next move in the path
+        dx, dy = next_step[0] - start[0], next_step[1] - start[1]
+    
+        print(f"Moving to: {next_step} with dx={dx}, dy={dy}")
+
+        if wrld.wall_at(next_step[0], next_step[1]):
+            print(f"Wall in the way at {next_step}! Recalculating path...")
+            my_path = self.astar(wrld, start, goal)
+            if not my_path or len(my_path) < 2:
+                next_step = my_path[1]
+                dx, dy = next_step[0] - self.x, next_step[1] - self.y
+
+        self.move(dx, dy)
+
+        # for i in range(1, len(my_path)):
+        #     x2, y2 = my_path[i]
+        #     print(f"Moving to: {x2}, {y2}")
+        #     self.move(x2 - start[0], y2 - start[1])
+        #     start = (x2, y2)
+
+        if (self.x, self.y) == goal:
             print("Reached the goal!")
 
         # print("Do() called!")
@@ -71,8 +91,9 @@ class TestCharacter(CharacterEntity):
         for dx, dy in directions:
             nx = a + dx
             ny = b + dy
-            if 0 <= nx < wrld.width() and 0 <= ny < wrld.height() and not wrld.wall_at(nx, ny):
-                neighbors.append((nx, ny))
+            if 0 <= nx < wrld.width() and 0 <= ny < wrld.height():
+                if not wrld.wall_at(nx, ny):
+                    neighbors.append((nx, ny))
 
         #print(f"Neighbors: {neighbors}")
         return neighbors
@@ -131,7 +152,7 @@ class TestCharacter(CharacterEntity):
         path.reverse()  # Start -> Goal order
         return path
 
-            
+           
 
 
     
