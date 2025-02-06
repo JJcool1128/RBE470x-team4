@@ -10,12 +10,17 @@ from math import sqrt
 class TestCharacter(CharacterEntity):
 
     def do(self, wrld):
-        start = (self.x, self.y)
-        goal = (wrld.exitcell[0], wrld.exitcell[1])
+        start = (1, 0)
+        goal = (wrld.exitcell[0] -1 , wrld.exitcell[1])
+
+        print(f"Start: {start}, Goal: {goal}")
 
         my_path = self.astar(wrld, start, goal)
+        print(f"Path: {my_path}")
+
         if len(my_path) > 1:
             x2, y2 = my_path[1]
+            print(f"Moving to: {x2}, {y2}")
             self.move(x2 - start[0], y2 - start[1])
 
     def find_neighbors(self, wrld, current: tuple[int, int]) -> list[tuple[int, int]]:
@@ -23,10 +28,10 @@ class TestCharacter(CharacterEntity):
         a, b = current
 
         directions = [
-            (0, 1)
-            (0, -1)
-            (1, 0)
-            (-1, 0)
+            (0, 1),   # up
+            (0, -1),  # down
+            (1, 0),   # right
+            (-1, 0)  # left
         ]
 
         for dx, dy in directions:
@@ -58,19 +63,19 @@ class TestCharacter(CharacterEntity):
 
     def astar(self, wlrd, start: tuple[int,int], goal: tuple[int,int]) -> list[tuple[int,int]]:
         frontier = PriorityQueue()
-        frontier.put(start, 0)
+        frontier.put(0, start)
         came_from = {}
         cost_so_far = {}
         cost_so_far[start] = 0
         came_from[start] = None
 
         while not frontier.empty():
-            current = frontier.get()
+            _, current = frontier.get()
 
             if current == goal:
                 break
 
-            for next in wlrd.neighbors(current):
+            for next in self.find_neighbors(current):
                 new_cost = cost_so_far[current] + self.cost(current, next)
                 if next not in cost_so_far or new_cost < cost_so_far[next]:
                     cost_so_far[next] = new_cost
@@ -82,7 +87,7 @@ class TestCharacter(CharacterEntity):
         while current is not None:
             path.append(current)
             current = came_from[current]
-            path.reverse()  # Start -> Goal order
+        path.reverse()  # Start -> Goal order
         return path
 
             
