@@ -41,36 +41,9 @@ class TestCharacter(CharacterEntity):
 
         self.move(dx, dy)
 
-        # for i in range(1, len(my_path)):
-        #     x2, y2 = my_path[i]
-        #     print(f"Moving to: {x2}, {y2}")
-        #     self.move(x2 - start[0], y2 - start[1])
-        #     start = (x2, y2)
-
         if (self.x, self.y) == goal:
             print("Reached the goal!")
-
-        # print("Do() called!")
-        # start = (0, 0)
-        # goal = (wrld.exitcell[0], wrld.exitcell[1])
-
-        # print(f"Start Position: {start}, Goal: {goal}")  # Debugging
-
-        # # Find the best path using A*
-        # my_path = self.astar(wrld, start, goal)
-
-        # if not my_path:
-        #     print("No path found!")
-        #     return None
-
-        # print(f"Generated Path: {my_path}")  # Debugging
-
-        # # Move one step towards the goal
-        # if len(my_path) > 1:  # Ignore if already at the goal
-        #     x2, y2 = my_path[1]  # Next step in the path
-        #     dx, dy = x2 - start[0], y2 - start[1]
-        #     print(f"Moving to: ({dx}, {dy})")  # Debugging
-        #     self.move(dx, dy)  # Move in the calculated direction
+             
 
     print("finding neighbors")
     def find_neighbors(self, wrld, current: tuple[int, int]) -> list[tuple[int, int]]:
