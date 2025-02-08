@@ -3,7 +3,7 @@ from enum import Enum
 class GameState(Enum):
     REACH_GOAL = 1
     AVOID_MONSTER = 2
-    AVOID_AGRESSIVE_MONSTERS = 3
+    AVOID_AGGRESSIVE_MONSTERS = 3
     AVOID_TWO_MONSTERS = 4
 
 class State:
@@ -23,10 +23,10 @@ class AvoidMonster(State):
     def execute(self, character, wrld):
         self.state = GameState.AVOID_MONSTER
     
-class AvoidAgressiveMonsters(State):
+class AvoidAggressiveMonsters(State):
     "State where the character tries to avoid agressive monsters"
     def execute(self, character, wrld):
-        self.state = GameState.AVOID_AGRESSIVE_MONSTERS
+        self.state = GameState.AVOID_AGGRESSIVE_MONSTERS
 
 class AvoidTwoMonsters(State): 
     "State where the character tries to avoid two monsters"
@@ -38,7 +38,7 @@ class StateMachine():
         self.current_state = initial_state
         self.states = {GameState.REACH_GOAL: ReachGoal(),
                        GameState.AVOID_MONSTER: AvoidMonster(),
-                       GameState.AVOID_AGRESSIVE_MONSTERS: AvoidAgressiveMonsters(),
+                       GameState.AVOID_AGGRESSIVE_MONSTERS: AvoidAggressiveMonsters(),
                        GameState.AVOID_TWO_MONSTERS: AvoidTwoMonsters()}
         
     def change_state(self, new_state: GameState):
@@ -48,9 +48,9 @@ class StateMachine():
         if self.current_state == GameState.REACH_GOAL:
             ReachGoal().execute(character, wrld)
         elif self.current_state == GameState.AVOID_MONSTER:
-            AvoidAgressiveMonsters().execute(character, wrld)
-        elif self.current_state == GameState.AVOID_AGRESSIVE_MONSTERS:
-            AvoidAgressiveMonsters().execute(character, wrld)
+            AvoidAggressiveMonsters().execute(character, wrld)
+        elif self.current_state == GameState.AVOID_AGGRESSIVE_MONSTERS:
+            AvoidAggressiveMonsters().execute(character, wrld)
         elif self.current_state == GameState.AVOID_TWO_MONSTERS:
             AvoidTwoMonsters().execute(character, wrld)
     
