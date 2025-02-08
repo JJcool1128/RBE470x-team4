@@ -45,8 +45,9 @@ class TestCharacter(CharacterEntity):
             print("Reached the goal!")
              
 
-    print("finding neighbors")
-    def find_neighbors(self, wrld, current: tuple[int, int]) -> list[tuple[int, int]]:
+    # NEIGHBORS OF 4 FOR VARIANT 1
+    print("finding neighbors of 4")
+    def neighbors_of_4(self, wrld, current: tuple[int, int]) -> list[tuple[int, int]]:
         neighbors = []
         a, b = current
 
