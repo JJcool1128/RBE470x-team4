@@ -152,6 +152,7 @@ class TestCharacter(CharacterEntity):
                 break
 
             for next in self.neighbors_of_4(wrld, current):
+            for next in self.neighbors_of_4(wrld, current):
                 new_cost = cost_so_far[current] + self.cost(wrld, current, next)
                 if next not in cost_so_far or new_cost < cost_so_far[next]:
                     cost_so_far[next] = new_cost
@@ -182,10 +183,14 @@ class TestCharacter(CharacterEntity):
     #     ax = a[0]
     #     ay = a[1]
 
-    #     map_boundary_x = wrld.width()
-    #     map_boundary_y = wrld.height()
-    #     cell_walkable = True
+        map_boundary_x = wrld.width()
+        map_boundary_y = wrld.height()
+        cell_walkable = True
 
+    #     if ax < 0 or ax >= map_boundary_x or ay < 0 or ay >= map_boundary_y:
+    #         cell_walkable = False
+    #     elif wrld.wall_at(ax, ay):
+    #         cell_walkable = False
     #     if ax < 0 or ax >= map_boundary_x or ay < 0 or ay >= map_boundary_y:
     #         cell_walkable = False
     #     elif wrld.wall_at(ax, ay):
@@ -194,7 +199,7 @@ class TestCharacter(CharacterEntity):
     #     elif wrld.mons_at(ax, ay) is not None and len(wrld.mons_at(ax, ay)) > 0:
     #         cell_walkable = False     
 
-    #     return cell_walkable
+        return cell_walkable
         
     
     # def neighbors_of_8(self, wrld, current: tuple[int, int]) -> list[tuple[int, int]]:
