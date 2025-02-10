@@ -9,6 +9,8 @@ from math import sqrt
 from game import Game
 #from state_machine import GameState, State, ReachGoal, AvoidMonster, AvoidSelfPreservMonster, AvoidAggressiveMonsters, AvoidTwoMonsters, StateMachine
 
+
+ 
 class TestCharacter(CharacterEntity):
     print("TestCharacter class loaded!")
 
@@ -168,8 +170,15 @@ class TestCharacter(CharacterEntity):
     def kill_monster(self, wrld):
         current_x = self.x
         current_y = self.y
+        cell_walkable = True
 
         self.place_bomb()
+        if wrld.explosion_at(current_x, current_y):
+            cell_walkable = False
+            
+        else:
+            self.move(self.astar(wrld, (current_x, current_y), (wrld.exitcell[0], wrld.exitcell[1])))
+            
         
         
             
