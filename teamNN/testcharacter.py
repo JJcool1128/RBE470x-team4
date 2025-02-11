@@ -151,7 +151,9 @@ class TestCharacter(CharacterEntity):
         while not frontier.empty():
             _, current = frontier.get()
 
-            
+            # if next in explosion_cells and current_time < explosion_cells[next]:
+            #     continue  # Avoid this cell if it will explode before we get there
+
             if current == goal:
                 break
             
