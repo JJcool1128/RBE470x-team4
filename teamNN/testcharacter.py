@@ -48,7 +48,8 @@ class TestCharacter(CharacterEntity):
 
                 if monster_distance <= 3:
                     print("Monster detected! " , monster_distance, " away")
-                    self.place_bomb()
+                    #self.place_bomb()
+                    #self.kill_monster(wrld)
 
         self.move(dx, dy)
 
@@ -150,6 +151,7 @@ class TestCharacter(CharacterEntity):
         while not frontier.empty():
             _, current = frontier.get()
 
+            
             if current == goal:
                 break
             
