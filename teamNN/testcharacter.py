@@ -152,6 +152,7 @@ class TestCharacter(CharacterEntity):
 
             if current == goal:
                 break
+            
             for next in self.neighbors_of_4(wrld, current):
                 new_cost = cost_so_far[current] + self.cost(wrld, current, next)
                 if next not in cost_so_far or new_cost < cost_so_far[next]:
@@ -170,31 +171,32 @@ class TestCharacter(CharacterEntity):
     def kill_monster(self, wrld):
         current_x, current_y = self.x, self.y
         self.place_bomb()
-    
-        # Get bomb range (assuming explosion spreads in a cross pattern)
-        explosion_cells = set()
 
-        # Find the bomb in the world
+        explosion_cells = {}  
         for bomb in wrld.bombs.values():
             if bomb.x == current_x and bomb.y == current_y:
-                explosion_range = wrld.explosion_range  # Get explosion range
-        
-                for d in range(-explosion_range, explosion_range + 1):
-                    if 0 <= current_x + d < wrld.width():  # Horizontal spread
-                        explosion_cells.add((current_x + d, current_y))
-                    if 0 <= current_y + d < wrld.height():  # Vertical spread
-                        explosion_cells.add((current_x, current_y + d))
+                explosion_range = wrld.explosion_range  
+                explosion_time = bomb.timer  
+                explosion_duration = wrld.explosion_duration  
 
-        # Find a safe path
-        safe_path = self.astar(wrld, (current_x, current_y), (wrld.exitcell[0], wrld.exitcell[1]), explosion_cells)
+                
+                for d in range(-explosion_range, explosion_range + 1):
+                    if 0 <= current_x + d < wrld.width():
+                        explosion_cells[(current_x + d, current_y)] = explosion_time + explosion_duration
+                    if 0 <= current_y + d < wrld.height():
+                        explosion_cells[(current_x, current_y + d)] = explosion_time + explosion_duration
+
+        safe_path = self.astar(wrld, (current_x, current_y), (wrld.exitcell[0], wrld.exitcell[1]), explosion_cells, wrld.time)
 
         if safe_path and len(safe_path) > 1:
             next_x, next_y = safe_path[1]
             dx, dy = next_x - current_x, next_y - current_y
             self.move(dx, dy)
         else:
-            print("No safe path found!")
+            print("No path found!")
 
+
+    
 
             
         
