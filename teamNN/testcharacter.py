@@ -36,8 +36,8 @@ class TestCharacter(CharacterEntity):
 
                 if monster_distance <= 3:
                     print("Monster detected! " , monster_distance, " away")
-                    self.place_bomb()
-                    #self.kill_monster(wrld)
+                    #self.place_bomb()
+                    self.kill_monster(wrld)
 
         self.move(dx, dy)
 
@@ -62,8 +62,16 @@ class TestCharacter(CharacterEntity):
         bx, by = b
         final_cost = sqrt((ax - bx) ** 2 + (ay - by) ** 2)
 
-        if (bx, by) in explosion_cells and current_time < explosion_cells[(bx, by)]:
-            return float('inf')
+        if (bx, by) in explosion_cells:
+            explosion_time = explosion_cells[(bx, by)]
+            time_to_explode = explosion_time - current_time
+            
+            if time_to_explode > 3:
+                final_cost += 20
+            elif 1 <= time_to_explode <= 3:
+                final_cost += 1000
+            else:
+                return float('inf')
 
         if wrld.monsters_at(bx, by) is not None:
             return float('inf')  
@@ -77,20 +85,24 @@ class TestCharacter(CharacterEntity):
                 if monster_distance == 0:
                     return float('inf')  
                 elif monster_distance <= monster_range:
-                    final_cost += 50  
+                    final_cost += 100  
                 elif monster_distance == monster_range + 1:
-                    final_cost += 25
+                    final_cost += 50
                 elif monster_distance == monster_range + 2:
-                    final_cost += 12
+                    final_cost += 25
                 elif monster_distance == monster_range + 3:
-                    final_cost += 6
+                    final_cost += 10
 
-                monster_moves = [(mx + dx, my + dy) for dx in [-2, -1, 0, 1, 2] for dy in [-2, -1, 0, 1, 2]
+                # monster_moves = [(mx + dx, my + dy) for dx in [-2, -1, 0, 1, 2] for dy in [-2, -1, 0, 1, 2]
+                #                  if 0 <= mx + dx < wrld.width() and 0 <= my + dy < wrld.height()
+                #                  and not wrld.wall_at(mx + dx, my + dy)]
+
+                monster_moves = [(mx + dx, my + dy) for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]
                                  if 0 <= mx + dx < wrld.width() and 0 <= my + dy < wrld.height()
                                  and not wrld.wall_at(mx + dx, my + dy)]
 
                 if (bx, by) in monster_moves:
-                    final_cost += 100
+                    final_cost += 200
         return final_cost 
 
     def astar(self, wrld, start: tuple[int, int], goal: tuple[int, int], explosion_cells, current_time) -> list[tuple[int, int]]:
@@ -108,8 +120,12 @@ class TestCharacter(CharacterEntity):
                 break
 
             for next in self.neighbors_of_4(wrld, current):
-                if next in explosion_cells and current_time < explosion_cells[next]:
-                    continue
+                if next in explosion_cells:
+                    explosion_time = explosion_cells[next]
+                    time_to_explode = explosion_time - current_time
+                    if time_to_explode <= 2:
+                        print(f"Explosion detected at {next} in {time_to_explode} turns!")
+                        continue
 
                 new_cost = cost_so_far[current] + self.cost(wrld, current, next, explosion_cells, current_time)
                 if next not in cost_so_far or new_cost < cost_so_far[next]:
