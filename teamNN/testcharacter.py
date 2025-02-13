@@ -85,24 +85,25 @@ class TestCharacter(CharacterEntity):
                 if monster_distance == 0:
                     return float('inf')  
                 elif monster_distance <= monster_range:
-                    final_cost += 100  
+                    final_cost += 1000  
                 elif monster_distance == monster_range + 1:
-                    final_cost += 50
+                    final_cost += 500
                 elif monster_distance == monster_range + 2:
-                    final_cost += 25
+                    final_cost += 250
                 elif monster_distance == monster_range + 3:
-                    final_cost += 10
+                    final_cost += 100
 
                 # monster_moves = [(mx + dx, my + dy) for dx in [-2, -1, 0, 1, 2] for dy in [-2, -1, 0, 1, 2]
                 #                  if 0 <= mx + dx < wrld.width() and 0 <= my + dy < wrld.height()
                 #                  and not wrld.wall_at(mx + dx, my + dy)]
 
-                monster_moves = [(mx + dx, my + dy) for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]
+                monster_moves = [(mx + dx, my + dy) for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0),
+                                                                   (1, 1), (1, -1), (-1, 1), (-1, -1)]
                                  if 0 <= mx + dx < wrld.width() and 0 <= my + dy < wrld.height()
                                  and not wrld.wall_at(mx + dx, my + dy)]
 
                 if (bx, by) in monster_moves:
-                    final_cost += 200
+                    return float('inf')
         return final_cost 
 
     def astar(self, wrld, start: tuple[int, int], goal: tuple[int, int], explosion_cells, current_time) -> list[tuple[int, int]]:
@@ -169,6 +170,11 @@ class TestCharacter(CharacterEntity):
             next_x, next_y = safe_path[1]
             dx, dy = next_x - current_x, next_y - current_y
             self.move(dx, dy)
+        elif not safe_path or len(safe_path) < 2:
+            safe_flee_path = self.astar(wrld, (current_x, current_y), (current_x + 3, current_y + 3), {}, wrld.time)
+            if safe_flee_path and len(safe_flee_path) > 1:
+                dx, dy = safe_flee_path[1][0] - current_x, safe_flee_path[1][1] - current_y
+                self.move(dx, dy)
         else:
             print("No escape path! Bomb placement canceled.")
             self.move(0, 0)
