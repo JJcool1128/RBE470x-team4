@@ -1,89 +1,203 @@
-# This is necessary to find the main code
 import sys
 sys.path.insert(0, '../bomberman')
-
-# Import necessary stuff
 from entity import CharacterEntity
 from colorama import Fore, Back
-import heapq
+from queue import PriorityQueue
+from math import sqrt
+from game import Game
+from state_machine import StateMachine, GameState
 
 class TestCharacter(CharacterEntity):
+    print("TestCharacter class loaded!")
+
+    # def __init__(self, name, avatar, x, y):
+    #     super().__init__(name, avatar, x, y)
+    #     self.state_machine = StateMachine(GameState.REACH_GOAL)
+
     def do(self, wrld):
-        """Moves the character towards the exit using A*."""
-        next_move = navigate_character(wrld, self)
-        if next_move:
-            dx, dy = next_move[0] - self.x, next_move[1] - self.y
+        print("Do() called!")
+        print(wrld)
+        start = (self.x, self.y)
+        goal = (wrld.exitcell[0], wrld.exitcell[1])
+
+        # new_state = self.determine_state(wrld)
+        # if new_state != self.state_machine.current_state:
+        #     self.state_machine.change_state(new_state)
+        #     print(f"State changed to {new_state}")
+
+        # self.state_machine.execute(self, wrld)
+        
+        print(f"Start: {start}, Goal: {goal}")
+
+        my_path = self.astar(wrld, start, goal, explosion_cells={}, current_time=wrld.time)
+        print(f"Path: {my_path}")
+
+        if not my_path or len(my_path) < 2:
+            print("No valid path found or already at goal.")
+            self.move(0, 0)  # Stay still if no valid path
+            return
+
+        next_step = my_path[1]
+        dx, dy = next_step[0] - start[0], next_step[1] - start[1]
+
+        print(f"Moving to: {next_step} with dx={dx}, dy={dy}")
+        for monster in wrld.monsters.values():
+            for m in monster:
+                mx, my = m.x, m.y
+                monster_distance = abs(self.x - mx) + abs(self.y - my)
+
+                if monster_distance <= 3:
+                    print("Monster detected! " , monster_distance, " away")
+                    #self.place_bomb()
+                    self.kill_monster(wrld)
+
+        self.move(dx, dy)
+
+    # def determine_state(self, wrld):
+    #     monsters = [m for sublist in wrld.monsters.values() for m in sublist]
+    #     monster_count = len(monsters)
+        
+    #     if monster_count == 0:
+    #         return GameState.REACH_GOAL
+    #     if monster_count == 1:
+    #         return GameState.AVOID_MONSTER
+    #     if monster_count == 2:
+    #         return GameState.AVOID_TWO_MONSTERS
+
+    def neighbors_of_4(self, wrld, current: tuple[int, int]) -> list[tuple[int, int]]:
+        neighbors = []
+        a, b = current
+        directions = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+
+        for dx, dy in directions:
+            nx, ny = a + dx, b + dy
+            if 0 <= nx < wrld.width() and 0 <= ny < wrld.height():
+                if not wrld.wall_at(nx, ny):
+                    neighbors.append((nx, ny))
+
+        return neighbors
+
+    def heuristic(self, a: tuple[int, int], b: tuple[int, int]) -> int:
+        return abs(a[0] - b[0]) + abs(a[1] - b[1])  # Manhattan distance
+    
+    def cost(self, wrld, a: tuple[int, int], b: tuple[int, int], explosion_cells, current_time) -> int:
+        ax, ay = a
+        bx, by = b
+        final_cost = sqrt((ax - bx) ** 2 + (ay - by) ** 2)
+
+        if (bx, by) in explosion_cells:
+            explosion_time = explosion_cells[(bx, by)]
+            time_to_explode = explosion_time - current_time
+            
+            if time_to_explode > 3:
+                final_cost += 20
+            elif 1 <= time_to_explode <= 3:
+                final_cost += 1000
+            else:
+                return float('inf')
+
+        if wrld.monsters_at(bx, by) is not None:
+            return float('inf')  
+
+        for monster in wrld.monsters.values():
+            for m in monster:
+                mx, my = m.x, m.y
+                monster_range = getattr(m, 'rnge', 0)
+                monster_distance = abs(bx - mx) + abs(by - my)
+
+                if monster_distance == 0:
+                    return float('inf')  
+                elif monster_distance <= monster_range:
+                    final_cost += 1000  
+                elif monster_distance == monster_range + 1:
+                    final_cost += 500
+                elif monster_distance == monster_range + 2:
+                    final_cost += 250
+                elif monster_distance == monster_range + 3:
+                    final_cost += 100
+
+                # monster_moves = [(mx + dx, my + dy) for dx in [-2, -1, 0, 1, 2] for dy in [-2, -1, 0, 1, 2]
+                #                  if 0 <= mx + dx < wrld.width() and 0 <= my + dy < wrld.height()
+                #                  and not wrld.wall_at(mx + dx, my + dy)]
+
+                monster_moves = [(mx + dx, my + dy) for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0),
+                                                                   (1, 1), (1, -1), (-1, 1), (-1, -1)]
+                                 if 0 <= mx + dx < wrld.width() and 0 <= my + dy < wrld.height()
+                                 and not wrld.wall_at(mx + dx, my + dy)]
+
+                if (bx, by) in monster_moves:
+                    return float('inf')
+        return final_cost 
+
+    def astar(self, wrld, start: tuple[int, int], goal: tuple[int, int], explosion_cells, current_time) -> list[tuple[int, int]]:
+        print("A* started...")
+        frontier = PriorityQueue()
+        frontier.put((0, start))
+        came_from = {start: None}
+        cost_so_far = {start: 0}
+
+        while not frontier.empty():
+            _, current = frontier.get()
+
+            if current == goal:
+                print("Goal reached!")
+                break
+
+            for next in self.neighbors_of_4(wrld, current):
+                if next in explosion_cells:
+                    explosion_time = explosion_cells[next]
+                    time_to_explode = explosion_time - current_time
+                    if time_to_explode <= 2:
+                        print(f"Explosion detected at {next} in {time_to_explode} turns!")
+                        continue
+
+                new_cost = cost_so_far[current] + self.cost(wrld, current, next, explosion_cells, current_time)
+                if next not in cost_so_far or new_cost < cost_so_far[next]:
+                    cost_so_far[next] = new_cost
+                    priority = new_cost + self.heuristic(goal, next)
+                    frontier.put((priority, next))
+                    came_from[next] = current
+
+        if goal not in came_from:
+            print("No valid path to goal!")
+            return []
+
+        path = []
+        current = goal
+        while current is not None:
+            path.append(current)
+            current = came_from[current]
+
+        path.reverse()
+        print(f"Final path: {path}")
+        return path
+
+    def kill_monster(self, wrld):
+        current_x, current_y = self.x, self.y
+        explosion_cells = {}
+        explosion_range = wrld.expl_range  
+        explosion_time = wrld.time + 1  
+        explosion_duration = wrld.expl_duration  
+
+        for d in range(-explosion_range, explosion_range + 1):
+            if 0 <= current_x + d < wrld.width():
+                explosion_cells[(current_x + d, current_y)] = explosion_time + explosion_duration
+            if 0 <= current_y + d < wrld.height():
+                explosion_cells[(current_x, current_y + d)] = explosion_time + explosion_duration
+
+        safe_path = self.astar(wrld, (current_x, current_y), (wrld.exitcell[0], wrld.exitcell[1]), explosion_cells, wrld.time)
+
+        if safe_path and len(safe_path) > 1:
+            print("Escape path found, placing bomb and moving!")
+            self.place_bomb()
+            next_x, next_y = safe_path[1]
+            dx, dy = next_x - current_x, next_y - current_y
             self.move(dx, dy)
-
-# A* Pathfinding Implementation
-def a_star_search(wrld, start, goal):
-    """Finds the shortest path from start to goal using A*, avoiding dangers."""
-    def heuristic(a, b):
-        """Manhattan distance heuristic."""
-        return abs(a[0] - b[0]) + abs(a[1] - b[1])
-
-    frontier = []
-    heapq.heappush(frontier, (0, start))
-    came_from = {start: None}
-    cost_so_far = {start: 0}
-
-    while frontier:
-        _, current = heapq.heappop(frontier)
-
-        if current == goal:
-            break
-
-        x, y = current
-        neighbors = [(x+dx, y+dy) for dx, dy in [(-1,0), (1,0), (0,-1), (0,1)]]
-
-        for next_pos in neighbors:
-            nx, ny = next_pos
-
-            # Check if within bounds and avoid obstacles
-            if (0 <= nx < wrld.width() and 0 <= ny < wrld.height() and 
-                not wrld.wall_at(nx, ny) and
-                not wrld.bomb_at(nx, ny) and
-                not wrld.explosion_at(nx, ny) and
-                not wrld.monsters_at(nx, ny)):
-
-                new_cost = cost_so_far[current] + 1  # Uniform movement cost
-
-                if next_pos not in cost_so_far or new_cost < cost_so_far[next_pos]:
-                    cost_so_far[next_pos] = new_cost
-                    priority = new_cost + heuristic(goal, next_pos)
-                    heapq.heappush(frontier, (priority, next_pos))
-                    came_from[next_pos] = current
-
-    # Reconstruct path
-    path = []
-    node = goal
-    while node is not None:
-        path.append(node)
-        node = came_from.get(node)
-    path.reverse()
-
-    return path if path and path[0] == start else None  # Ensure valid path
-
-# Function to find the character's position and exit
-def find_character_and_exit(wrld, character):
-    """Finds the starting position of the character and the exit."""
-    start, goal = None, None
-
-    for x in range(wrld.width()):
-        for y in range(wrld.height()):
-            if wrld.me(character) and (x, y) == (wrld.me(character).x, wrld.me(character).y):
-                start = (x, y)
-            if wrld.exit_at(x, y):
-                goal = (x, y)
-
-    return start, goal
-
-# Character navigation using A*
-def navigate_character(wrld, character):
-    """Moves the character towards the exit using A*, avoiding dangers."""
-    start, goal = find_character_and_exit(wrld, character)
-    if start and goal:
-        path = a_star_search(wrld, start, goal)
-        if path and len(path) > 1:
-            return path[1]  # Move to the next step in the path
-    return None  # No valid move found
+        elif not safe_path or len(safe_path) < 2:
+            safe_flee_path = self.astar(wrld, (current_x, current_y), (current_x + 3, current_y + 3), {}, wrld.time)
+            if safe_flee_path and len(safe_flee_path) > 1:
+                dx, dy = safe_flee_path[1][0] - current_x, safe_flee_path[1][1] - current_y
+                self.move(dx, dy)
+        else:
+            print("No escape path! Bomb placement canceled.")
+            self.move(0, 0)
