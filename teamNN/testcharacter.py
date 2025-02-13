@@ -5,9 +5,14 @@ from colorama import Fore, Back
 from queue import PriorityQueue
 from math import sqrt
 from game import Game
+from state_machine import StateMachine, GameState
 
 class TestCharacter(CharacterEntity):
     print("TestCharacter class loaded!")
+
+    # def __init__(self, name, avatar, x, y):
+    #     super().__init__(name, avatar, x, y)
+    #     self.state_machine = StateMachine(GameState.REACH_GOAL)
 
     def do(self, wrld):
         print("Do() called!")
@@ -15,6 +20,13 @@ class TestCharacter(CharacterEntity):
         start = (self.x, self.y)
         goal = (wrld.exitcell[0], wrld.exitcell[1])
 
+        # new_state = self.determine_state(wrld)
+        # if new_state != self.state_machine.current_state:
+        #     self.state_machine.change_state(new_state)
+        #     print(f"State changed to {new_state}")
+
+        # self.state_machine.execute(self, wrld)
+        
         print(f"Start: {start}, Goal: {goal}")
 
         my_path = self.astar(wrld, start, goal, explosion_cells={}, current_time=wrld.time)
@@ -40,6 +52,17 @@ class TestCharacter(CharacterEntity):
                     self.kill_monster(wrld)
 
         self.move(dx, dy)
+
+    # def determine_state(self, wrld):
+    #     monsters = [m for sublist in wrld.monsters.values() for m in sublist]
+    #     monster_count = len(monsters)
+        
+    #     if monster_count == 0:
+    #         return GameState.REACH_GOAL
+    #     if monster_count == 1:
+    #         return GameState.AVOID_MONSTER
+    #     if monster_count == 2:
+    #         return GameState.AVOID_TWO_MONSTERS
 
     def neighbors_of_4(self, wrld, current: tuple[int, int]) -> list[tuple[int, int]]:
         neighbors = []
