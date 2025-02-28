@@ -4,38 +4,29 @@ sys.path.insert(0, '../../bomberman')
 sys.path.insert(1, '..')
 
 # Import necessary stuff
+import random
 from game import Game
+from monsters.stupid_monster import StupidMonster
+import time
+import random as rand
 
-# TODO This is your code!
-sys.path.insert(1, '../teamNN')
+for i in range(100):
+    sys.path.insert(1, '../teamNN')
+    from testcharacter import TestCharacter
 
-# Uncomment this if you want the empty test character
-from testcharacter import TestCharacter
+    # Create the game
+    random.seed(rand.randint(1,500)) # TODO Change this if you want different random choices
+    g = Game.fromfile('map.txt')
+    # g.add_monster(StupidMonster("stupid", # name
+    #                             "S",      # avatar
+    #                             3, 9      # position
+    # ))
 
-# Uncomment this if you want the interactive character
-# from interactivecharacter import InteractiveCharacter
+    # TODO Add your character
+    g.add_character(TestCharacter("me", # name
+                                "C",  # avatar
+                                0, 0  # position
+    ))
 
-# Create the game
-g = Game.fromfile('map.txt')
-
-# TODO Add your character
-
-# Uncomment this if you want the test character
-g.add_character(TestCharacter("me", # name
-                              "C",  # avatar
-                              0, 0  # position
-))
-
-# Uncomment this if you want the interactive character
-# g.add_character(InteractiveCharacter("me", # name
-#                                      "C",  # avatar
-#                                      0, 0  # position
-# ))
-
-# Run!
-
-# Use this if you want to press ENTER to continue at each step
-# g.go(0)
-
-# Use this if you want to proceed automatically
-g.go(1)
+    # Run!
+    g.go(1)

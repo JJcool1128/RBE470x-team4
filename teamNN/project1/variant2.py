@@ -10,7 +10,7 @@ from monsters.stupid_monster import StupidMonster
 import time
 import random as rand
 
-for i in range(10):
+for i in range(100):
     sys.path.insert(1, '../teamNN')
     from testcharacter import TestCharacter
 
@@ -30,4 +30,3 @@ for i in range(10):
 
     # Run!
     g.go(1)
-    time.sleep(2)
