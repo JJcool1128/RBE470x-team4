@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 reward_history = []
 
-for i in range(1000):
+for i in range(600):
     sys.path.insert(1, '../teamNN')
     from testcharacter import TestCharacter
 
@@ -31,7 +31,8 @@ for i in range(1000):
     g.add_character(test_character)
 
     reward_history.append(sum(reward for (_, _, reward, _, _) in list(test_character.memory)[-100:]))
-    # Run!
+
+    print(i)
     g.go(1)
 
 plt.plot(reward_history)

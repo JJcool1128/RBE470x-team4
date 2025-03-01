@@ -34,21 +34,48 @@ class TestCharacter(CharacterEntity):
     output_dim = 6   # Number of actions (up, down, left, right, stay, bomb)
     # Our Q-network is defined as a class variable so that its memory and training
     # persist across episodes.
+    # Our main Q-network
     model = DQN(input_dim, output_dim)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     loss_fn = nn.MSELoss()
     memory = deque(maxlen=2000)
+
+    # Add Target Network (to stabilize learning)
+    target_model = DQN(input_dim, output_dim)
+    target_model.load_state_dict(model.state_dict())  # Copy initial weights
+    target_model.eval()  # Target network is only used for computing Q-targets
+
+    # DQN Hyperparameters
     gamma = 0.99
     epsilon = 1.0       # Initial exploration rate
     epsilon_min = 0.1
-    epsilon_decay = 0.999
+    epsilon_decay = 0.995  # Slower decay to prevent early exploitation
     batch_size = 32
+    target_update_freq = 50  # Update target network every 50 episodes
 
     def __init__(self, name, avatar, x, y):
         super().__init__(name, avatar, x, y)
         # To record the previous state and action for the transition update.
         self.last_state = None
         self.last_action = None
+        try:
+            self.__class__.target_model.load_state_dict(self.__class__.model.state_dict())
+            # self.__class__.model.eval()  # Switch to evaluation mode
+            # self.__class__.epsilon = 0.05  # Reduce randomness for deployment
+            print("Loaded trained model successfully!")
+        except FileNotFoundError:
+            print("No pre-trained model found. Training from scratch.")
+
+    def neighbors_of_4(self, wrld, current: tuple[int, int]) -> list[tuple[int, int]]:
+        neighbors = []
+        a, b = current
+        directions = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+        for dx, dy in directions:
+            nx, ny = a + dx, b + dy
+            if 0 <= nx < wrld.width() and 0 <= ny < wrld.height():
+                if not wrld.wall_at(nx, ny):
+                    neighbors.append((nx, ny))
+        return neighbors
 
     # --- State representation ---
     def get_state(self, wrld):
@@ -101,7 +128,7 @@ class TestCharacter(CharacterEntity):
         - Additional penalty if a monster is very close.
         - One-time bonus for crossing a section of walls.
         """
-        reward = -0.1
+        reward = 0
         done = False
 
         # Reward for reaching the exit.
@@ -114,20 +141,21 @@ class TestCharacter(CharacterEntity):
             reward -= 10.0
             done = True
 
-        for dx in [-1,1]:
-            if wrld.bomb_at(self.x + dx, self.y) and not wrld.bomb_at(self.x, self.y):
-                reward -= 1.0
-                break
-        for dy in [-1,1]:
-            if wrld.bomb_at(self.x, self.y + dy) and not wrld.bomb_at(self.x, self.y):
-                reward -= 1.0
-                break
+        # for dx in [-1,1]:
+        #     if wrld.bomb_at(self.x + dx, self.y) and not wrld.bomb_at(self.x, self.y):
+        #         reward -= 10.0
+        #         break
+            
+        # for dy in [-1,1]:
+        #     if wrld.bomb_at(self.x, self.y + dy) and not wrld.bomb_at(self.x, self.y):
+        #         reward -= 10.0
+        #         break
 
         # Extra penalty if a monster is dangerously close.
         for monster_list in wrld.monsters.values():
             for m in monster_list:
                 if abs(self.x - m.x) + abs(self.y - m.y) < 2:
-                    reward -= 5.0
+                    reward -= 2.0
                 if self.x == m.x and self.y == m.y:
                     reward -= 10.0
                     done = True
@@ -145,12 +173,11 @@ class TestCharacter(CharacterEntity):
 
         # Reward for getting closer to the goal.
         if current_distance < prev_distance:
-            reward += 0.5  # Increase this if the agent needs stronger guidance.
+            reward += 0.5 # Increase this if the agent needs stronger guidance.
 
         # Penalty if moving away from the goal.
         elif current_distance > prev_distance:
             reward -= 0.5  # Increase this if the agent frequently backtracks.
-
 
         # Check if there is a monster within a Euclidean distance of less than 4.
         monster_nearby = False
@@ -161,17 +188,23 @@ class TestCharacter(CharacterEntity):
                     monster_nearby = True
                     break
             if monster_nearby:
-                break                    
+                break
         
-        wall_corner = False
-        if wrld.wall_at(self.x,self.y+1) and (wrld.width() - self.x == 1):
-            wall_corner = True
+        # wall_corner = False
+        
+        # if wrld.wall_at(self.x,self.y+1) and (wrld.width() - self.x == 1):
+        #     wall_corner = True
 
         # Place bomb if a monster is close or if there's no available path.
-        if not monster_nearby:
-            if not(self.wall_blocked(wrld) and wall_corner):
-                if wrld.bomb_at(self.x,self.y):
-                    reward -= 1.0
+        # if monster_nearby:
+        #     if (self.wall_blocked(wrld)):
+        #         if state[7] == 1.0:
+        #             reward += 2
+
+        if state[7] == 1.0:
+            reward -= 1
+        #if (wrld.bomb_at(self.x, self.y) and not wall_corner and not monster_nearby):
+        #    reward -= 50
 
         return reward, done
 
@@ -180,32 +213,42 @@ class TestCharacter(CharacterEntity):
         self.__class__.memory.append((state, action, reward, next_state, done))
 
     def train_model(self):
-        if len(self.__class__.memory) < self.__class__.batch_size:
-            return  # Not enough samples to train.
-        batch = random.sample(self.__class__.memory, self.__class__.batch_size)
-        states, actions, rewards, next_states, dones = zip(*batch)
-        states = torch.tensor(np.array(states))
-        next_states = torch.tensor(np.array(next_states))
-        actions = torch.tensor(actions)
-        rewards = torch.tensor(rewards)
-        dones = torch.tensor(dones, dtype=torch.float32)
-        
-        # Compute current Q values.
-        q_values = self.__class__.model(states)
-        q_values = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
-        # Compute next Q values.
-        next_q_values = self.__class__.model(next_states).max(1)[0]
-        # Compute the target Q values.
-        target = rewards + self.__class__.gamma * next_q_values * (1 - dones)
-        
-        loss = self.__class__.loss_fn(q_values, target.detach())
-        self.__class__.optimizer.zero_grad()
-        loss.backward()
-        self.__class__.optimizer.step()
-        
-        # Decay epsilon (exploration rate).
-        if self.__class__.epsilon > self.__class__.epsilon_min:
-            self.__class__.epsilon *= self.__class__.epsilon_decay
+        # if len(self.__class__.memory) < self.__class__.batch_size:
+        #     return  # Not enough samples to train.
+        if len(self.__class__.memory) >= self.__class__.batch_size:
+            batch = random.sample(self.__class__.memory, self.__class__.batch_size)
+            states, actions, rewards, next_states, dones = zip(*batch)
+            states = torch.tensor(np.array(states), dtype=torch.float32)
+            next_states = torch.tensor(np.array(next_states), dtype=torch.float32)
+            actions = torch.tensor(actions, dtype=torch.long)
+            rewards = torch.tensor(rewards, dtype=torch.float32)
+            dones = torch.tensor(dones, dtype=torch.bool)
+
+            # Compute Q-values and targets
+            q_values = self.__class__.model(states).gather(1, actions.unsqueeze(1)).squeeze(1)
+            next_q_values = self.__class__.target_model(next_states).max(1)[0]
+            target = rewards + self.__class__.gamma * next_q_values * (~dones)
+
+            # Compute loss and optimize
+            loss = self.__class__.loss_fn(q_values, target.detach())
+            self.__class__.optimizer.zero_grad()
+            loss.backward()
+            self.__class__.optimizer.step()
+
+            # Decay epsilon
+            # Only decay epsilon once per episode, not per step
+            if len(self.__class__.memory) >= self.__class__.batch_size:
+                if self.__class__.epsilon > self.__class__.epsilon_min:
+                    self.__class__.epsilon *= 0.995  # Slower decay
+
+            # Save model every 10 episodes
+            if random.random() < 1 / self.__class__.target_update_freq:
+                        self.__class__.target_model.load_state_dict(self.__class__.model.state_dict())
+                        print("Target network updated!")
+
+            if random.random() < 0.1:  # Approx every 10 episodes
+                torch.save(self.__class__.model.state_dict(), "dqn_bomberman.pth")
+                print("Model saved!")
     
     def wall_blocked(self, wrld):
         """
@@ -264,4 +307,3 @@ class TestCharacter(CharacterEntity):
             self.move(0, 0)
         elif action == 5:
             self.place_bomb()
-            self.move(0, 0)

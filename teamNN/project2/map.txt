@@ -6,19 +6,19 @@ expl_range 1
 |        |
 |        |
 |        |
-|WWWWWWWW|
 |        |
 |        |
 |        |
-|WWWWWWWW|
 |        |
 |        |
 |        |
-|WWWWWWWW|
 |        |
 |        |
 |        |
-|WWWWWWWW|
+|        |
+|        |
+|        |
+|        |
 |        |
 |        |
 |       E|
