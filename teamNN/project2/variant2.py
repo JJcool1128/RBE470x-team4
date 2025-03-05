@@ -32,8 +32,8 @@ for i in range(600):
 
     reward_history.append(sum(reward for (_, _, reward, _, _) in list(test_character.memory)[-100:]))
 
-    print(i)
-    g.go(1)
+    print("Iteration: ", i)
+    g.go()
 
 plt.plot(reward_history)
 plt.xlabel("Episode")
