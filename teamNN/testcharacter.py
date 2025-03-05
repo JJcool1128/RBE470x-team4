@@ -30,7 +30,7 @@ class TestCharacter(CharacterEntity):
     print("DQN TestCharacter class loaded!")
     
     # --- DQN Hyperparameters and shared objects ---
-    input_dim = 8    # Size of our state vector (see get_state below)
+    input_dim = 9    # Size of our state vector (see get_state below)
     output_dim = 6   # Number of actions (up, down, left, right, stay, bomb)
     # Our Q-network is defined as a class variable so that its memory and training
     # persist across episodes.
@@ -40,10 +40,10 @@ class TestCharacter(CharacterEntity):
     loss_fn = nn.MSELoss()
     memory = deque(maxlen=2000)
 
-    # Add Target Network (to stabilize learning)
-    target_model = DQN(input_dim, output_dim)
-    target_model.load_state_dict(model.state_dict())  # Copy initial weights
-    target_model.eval()  # Target network is only used for computing Q-targets
+    # # Add Target Network (to stabilize learning)
+    # target_model = DQN(input_dim, output_dim)
+    # target_model.load_state_dict(model.state_dict())  # Copy initial weights
+    # target_model.eval()  # Target network is only used for computing Q-targets
 
     # DQN Hyperparameters
     gamma = 0.99
@@ -58,24 +58,13 @@ class TestCharacter(CharacterEntity):
         # To record the previous state and action for the transition update.
         self.last_state = None
         self.last_action = None
-        try:
-            self.__class__.target_model.load_state_dict(self.__class__.model.state_dict())
-            # self.__class__.model.eval()  # Switch to evaluation mode
-            # self.__class__.epsilon = 0.05  # Reduce randomness for deployment
-            print("Loaded trained model successfully!")
-        except FileNotFoundError:
-            print("No pre-trained model found. Training from scratch.")
-
-    def neighbors_of_4(self, wrld, current: tuple[int, int]) -> list[tuple[int, int]]:
-        neighbors = []
-        a, b = current
-        directions = [(0, 1), (0, -1), (1, 0), (-1, 0)]
-        for dx, dy in directions:
-            nx, ny = a + dx, b + dy
-            if 0 <= nx < wrld.width() and 0 <= ny < wrld.height():
-                if not wrld.wall_at(nx, ny):
-                    neighbors.append((nx, ny))
-        return neighbors
+        # try:
+        #     self.__class__.target_model.load_state_dict(self.__class__.model.state_dict())
+        #     # self.__class__.model.eval()  # Switch to evaluation mode
+        #     # self.__class__.epsilon = 0.05  # Reduce randomness for deployment
+        #     print("Loaded trained model successfully!")
+        # except FileNotFoundError:
+        #     print("No pre-trained model found. Training from scratch.")
 
     # --- State representation ---
     def get_state(self, wrld):
@@ -87,8 +76,8 @@ class TestCharacter(CharacterEntity):
            to the closest monster (if any).
          - 1.0 if a bomb is on the current cell, else 0.0.
         """
-        width = wrld.width()
-        height = wrld.height()
+        width = wrld.width() 
+        height = wrld.height() 
         agent_x = self.x / width
         agent_y = self.y / height
         exit_x = wrld.exitcell[0] / width
@@ -104,107 +93,105 @@ class TestCharacter(CharacterEntity):
                     min_dist = dist
                     closest_monster = m
         if closest_monster is None:
-            monster_dx = 0.0
-            monster_dy = 0.0
-            monster_dist = 1.0  # default value when no monster is nearby
+            monster_dx = -1.0
+            monster_dy = -1.0
+            monster_dist = -1.0  # default value when no monster is nearby
         else:
             monster_dx = (closest_monster.x - self.x) / width
             monster_dy = (closest_monster.y - self.y) / height
             monster_dist = min_dist / (width + height)
-        bomb_here = 1.0 if wrld.bomb_at(self.x, self.y) else 0.0
+
+        bomb_x = -1.0
+        bomb_y = -1.0
+        for dx in range(wrld.width() - 1):
+            for dy in range(wrld.height() - 1):
+                if wrld.bomb_at(dx,dy):
+                    bomb_x = dx / width
+                    bomb_y = dy / height
+                    break
+
+        # explosion_pos_list = []
+        # for dx in range(wrld.width() - 1):
+        #     for dy in range(wrld.height() - 1):
+        #         if wrld.explosion_at(dx,dy):
+        #             explosion_x = dx / width
+        #             explosion_y = dy / height
+        #             explosion_pos_list.append((explosion_x, explosion_y))
+        #         else:
+        #             explosion_x = -1.0
+        #             explosion_y = -1.0
 
         state = np.array([agent_x, agent_y, exit_x, exit_y,
-                          monster_dx, monster_dy, monster_dist, bomb_here],
+                          monster_dx, monster_dy, monster_dist, bomb_x, bomb_y],
                          dtype=np.float32)
         return state
 
     # --- Reward function ---
-    def get_reward(self, wrld, state, next_state):
+    def get_reward(self, wrld, state, next_state, action):
         """
         A basic reward function:
-        - Small penalty each move (-0.1).
-        - Bonus for reaching the exit (+10).
-        - Penalty for being caught in an explosion (-10).
-        - Additional penalty if a monster is very close.
-        - One-time bonus for crossing a section of walls.
         """
         reward = 0
         done = False
 
-        # Reward for reaching the exit.
-        if (self.x, self.y) == wrld.exitcell:
-            reward += 10.0
-            done = True
+        print("Agent x: ", str(next_state[0]*wrld.width()))
+        print("Agent y: ", str(next_state[1]*wrld.height()))
+        print("Exit x: ", str(next_state[2]*wrld.width()))
+        print("Exit y: ", str(next_state[3]*wrld.height()))
+        print("Monster dx: ", str(next_state[4]*wrld.width()))
+        print("Monster dy: ", str(next_state[5]*wrld.height()))
+        print("Monster dist: ", str(next_state[6]))
+        print("Bomb x: ", str(next_state[7]*wrld.width()))
+        print("Bomb y: ", str(next_state[8]*wrld.height()))
+        
+        # # Reward for reaching the exit.
+        # if state[0] == state[2] and state[1] == state[3]:
+        #     reward += 10.0
+        #     done = True
+        #     print("Reached goal: TRUE")
+        # else:
+        #     print("Reached goal: FALSE")
 
-        # Penalty if the agent is hit by an explosion.
-        if wrld.explosion_at(self.x, self.y):
-            reward -= 10.0
-            done = True
+        # # Penalty if the agent is hit by an explosion.
+        # if state[0] == state[7] and state[1] == state[8]:
+        #     reward -= 10.0
+        #     done = True
+        #     print("Hit by explosion: TRUE")
+        # else:
+        #     print("Hit by explosion: FALSE")
 
-        # for dx in [-1,1]:
-        #     if wrld.bomb_at(self.x + dx, self.y) and not wrld.bomb_at(self.x, self.y):
-        #         reward -= 10.0
-        #         break
+        # if action == 5:
+        #     print("Placed bomb: TRUE")
+        #     if next_state[0] == next_state[7] and next_state[1] == next_state[8]:
+        #         reward -= 1
+        #         print("After Placing Bomb, same location as bomb: TRUE")
+        #     else: 
+        #         print("After Placing Bomb, same location as bomb: FALSE")
+        # else:
+        #     print("Placed bomb: FALSE")
             
-        # for dy in [-1,1]:
-        #     if wrld.bomb_at(self.x, self.y + dy) and not wrld.bomb_at(self.x, self.y):
-        #         reward -= 10.0
-        #         break
+        # if abs(state[0] - state[7]) == 1/wrld.width() or abs(state[1] - state[8]) == 1/wrld.height():
+        #     print("Within bomb range == TRUE")
+        #     if action == 4:
+        #         reward -= 1
+        #         print("Moved away within bomb range: FALSE")
+        #     else:
+        #         print("Moved away within bomb range: TRUE")
+            
+        #     if next_state[0] == next_state[7] and next_state[1] == next_state[8]:
+        #         reward -= 1
+        #         print("Went back to bomb: TRUE")
+        #     else:
+        #         print("Went back to bomb: FALSE")
+        # else:
+        #     print("Within bomb range: FALSE")
 
-        # Extra penalty if a monster is dangerously close.
-        for monster_list in wrld.monsters.values():
-            for m in monster_list:
-                if abs(self.x - m.x) + abs(self.y - m.y) < 2:
-                    reward -= 2.0
-                if self.x == m.x and self.y == m.y:
-                    reward -= 10.0
-                    done = True
-
-        # --- Additional one-time reward for crossing a section of walls ---
-        # Assume wall sections are at rows 3, 7, 11, and 15.
-        # Convert normalized y-coordinates back to grid rows.
-
-        # Distance-based reward: Encourage movement towards the exit.
-        goal = (wrld.exitcell[0], wrld.exitcell[1])
-        
-        # Manhattan distance to the goal
-        current_distance = abs(self.x - goal[0]) + abs(self.y - goal[1])
-        prev_distance = abs(self.last_state[0] * wrld.width() - goal[0]) + abs(self.last_state[1] * wrld.height() - goal[1]) if self.last_state is not None else current_distance
-
-        # Reward for getting closer to the goal.
-        if current_distance < prev_distance:
-            reward += 0.5 # Increase this if the agent needs stronger guidance.
-
-        # Penalty if moving away from the goal.
-        elif current_distance > prev_distance:
-            reward -= 0.5  # Increase this if the agent frequently backtracks.
-
-        # Check if there is a monster within a Euclidean distance of less than 4.
-        monster_nearby = False
-        for monster_list in wrld.monsters.values():
-            for m in monster_list:
-                dist = ((self.x - m.x)**2 + (self.y - m.y)**2)**0.5
-                if dist < 4:
-                    monster_nearby = True
-                    break
-            if monster_nearby:
-                break
-        
-        # wall_corner = False
-        
-        # if wrld.wall_at(self.x,self.y+1) and (wrld.width() - self.x == 1):
-        #     wall_corner = True
-
-        # Place bomb if a monster is close or if there's no available path.
-        # if monster_nearby:
-        #     if (self.wall_blocked(wrld)):
-        #         if state[7] == 1.0:
-        #             reward += 2
-
-        if state[7] == 1.0:
-            reward -= 1
-        #if (wrld.bomb_at(self.x, self.y) and not wall_corner and not monster_nearby):
-        #    reward -= 50
+        # # Extra penalty if a monster is dangerously close.
+        # if abs(next_state[4]) <= 2/wrld.width() or abs(next_state[5]) <= 2/wrld.height():
+        #     reward -= 2.0
+        #     print("Monster close: TRUE")
+        # else: 
+        #     print("Monster close: FALSE \n")
 
         return reward, done
 
@@ -224,16 +211,16 @@ class TestCharacter(CharacterEntity):
             rewards = torch.tensor(rewards, dtype=torch.float32)
             dones = torch.tensor(dones, dtype=torch.bool)
 
-            # Compute Q-values and targets
-            q_values = self.__class__.model(states).gather(1, actions.unsqueeze(1)).squeeze(1)
-            next_q_values = self.__class__.target_model(next_states).max(1)[0]
-            target = rewards + self.__class__.gamma * next_q_values * (~dones)
+            # # Compute Q-values and targets
+            # q_values = self.__class__.model(states).gather(1, actions.unsqueeze(1)).squeeze(1)
+            # next_q_values = self.__class__.target_model(next_states).max(1)[0]
+            # target = rewards + self.__class__.gamma * next_q_values * (~dones)
 
             # Compute loss and optimize
-            loss = self.__class__.loss_fn(q_values, target.detach())
-            self.__class__.optimizer.zero_grad()
-            loss.backward()
-            self.__class__.optimizer.step()
+            # loss = self.__class__.loss_fn(q_values, target.detach())
+            # self.__class__.optimizer.zero_grad()
+            # loss.backward()
+            # self.__class__.optimizer.step()
 
             # Decay epsilon
             # Only decay epsilon once per episode, not per step
@@ -242,13 +229,13 @@ class TestCharacter(CharacterEntity):
                     self.__class__.epsilon *= 0.995  # Slower decay
 
             # Save model every 10 episodes
-            if random.random() < 1 / self.__class__.target_update_freq:
-                        self.__class__.target_model.load_state_dict(self.__class__.model.state_dict())
-                        print("Target network updated!")
+            # if random.random() < 1 / self.__class__.target_update_freq:
+            #     self.__class__.target_model.load_state_dict(self.__class__.model.state_dict())
+            #     print("Target network updated!")
 
-            if random.random() < 0.1:  # Approx every 10 episodes
-                torch.save(self.__class__.model.state_dict(), "dqn_bomberman.pth")
-                print("Model saved!")
+            # if random.random() < 0.1:  # Approx every 10 episodes
+            #     torch.save(self.__class__.model.state_dict(), "dqn_bomberman.pth")
+            #     print("Model saved!")
     
     def wall_blocked(self, wrld):
         """
@@ -271,7 +258,7 @@ class TestCharacter(CharacterEntity):
         
         # If we have a recorded previous state-action, form a transition.
         if self.last_state is not None:
-            reward, done = self.get_reward(wrld, self.last_state, state)
+            reward, done = self.get_reward(wrld, self.last_state, state, self.last_action)
             self.remember(self.last_state, self.last_action, reward, state, done)
             self.train_model()
             # If the episode is done (exit reached or explosion hit), reset our saved state.
