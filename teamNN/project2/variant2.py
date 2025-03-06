@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 reward_history = []
 
-for i in range(600):
+for i in range(100):
     sys.path.insert(1, '../teamNN')
     from testcharacter import TestCharacter
 
@@ -33,7 +33,7 @@ for i in range(600):
     reward_history.append(sum(reward for (_, _, reward, _, _) in list(test_character.memory)[-100:]))
 
     print("Iteration: ", i)
-    g.go()
+    g.go(1)
 
 plt.plot(reward_history)
 plt.xlabel("Episode")

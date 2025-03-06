@@ -4,21 +4,35 @@ sys.path.insert(0, '../../bomberman')
 sys.path.insert(1, '..')
 
 # Import necessary stuff
+import random
 from game import Game
+from monsters.stupid_monster import StupidMonster
+import time
+import random as rand
+import matplotlib.pyplot as plt
 
-# TODO This is your code!
-sys.path.insert(1, '../teamNN')
-from testcharacter import TestCharacter
+reward_history = []
 
+for i in range(1000):
+    sys.path.insert(1, '../teamNN')
+    from testcharacter import TestCharacter
 
-# Create the game
-g = Game.fromfile('map.txt')
+    # Create the game
+    random.seed(123) # TODO Change this if you want different random choices
 
-# TODO Add your character
-g.add_character(TestCharacter("me", # name
-                              "C",  # avatar
-                              0, 0  # position
-))
+    g = Game.fromfile('map.txt')
+    test_character = TestCharacter("me", "C", 0, 0)
 
-# Run!
-g.go(1)
+    # TODO Add your character
+    g.add_character(test_character)
+
+    reward_history.append(sum(reward for (_, _, reward, _, _) in list(test_character.memory)[-100:]))
+
+    print("Iteration: ", i)
+    g.go(1)
+
+plt.plot(reward_history)
+plt.xlabel("Episode")
+plt.ylabel("Total Reward")
+plt.title("Reward Progression Over Episodes")
+plt.show()

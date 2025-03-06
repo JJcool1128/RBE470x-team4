@@ -1,14 +1,16 @@
 import sys
 sys.path.insert(0, '../bomberman')
 from entity import CharacterEntity
+from events import Event
 import random
 import numpy as np
 from collections import deque
 
+
 # Import PyTorch for the neural network implementation.
 import torch
 import torch.nn as nn
-import torch.optim as optim
+import torch.optim as opti
 
 # Define the DQN neural network. This network takes a state vector (here of length 8)
 # and outputs Q-values for 6 discrete actions:
@@ -30,13 +32,13 @@ class TestCharacter(CharacterEntity):
     print("DQN TestCharacter class loaded!")
     
     # --- DQN Hyperparameters and shared objects ---
-    input_dim = 9    # Size of our state vector (see get_state below)
+    input_dim = 10    # Size of our state vector (see get_state below)
     output_dim = 6   # Number of actions (up, down, left, right, stay, bomb)
     # Our Q-network is defined as a class variable so that its memory and training
     # persist across episodes.
     # Our main Q-network
     model = DQN(input_dim, output_dim)
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = opti.Adam(model.parameters(), lr=0.001)
     loss_fn = nn.MSELoss()
     memory = deque(maxlen=2000)
 
@@ -110,6 +112,8 @@ class TestCharacter(CharacterEntity):
                     bomb_y = dy / height
                     break
 
+        explosion_at_agent = 1.0 if wrld.explosion_at(self.x, self.y) else 0.0
+
         # explosion_pos_list = []
         # for dx in range(wrld.width() - 1):
         #     for dy in range(wrld.height() - 1):
@@ -120,9 +124,16 @@ class TestCharacter(CharacterEntity):
         #         else:
         #             explosion_x = -1.0
         #             explosion_y = -1.0
+        
+        # for e in events:
+        #     if e.character == self:
+        #         if e.tpe == Event.BOMB_HIT_CHARACTER or e.tpe == Event.CHARACTER_KILLED_BY_MONSTER:
+        #             dead_agent = True
+        #             print("Agent dead")
+
 
         state = np.array([agent_x, agent_y, exit_x, exit_y,
-                          monster_dx, monster_dy, monster_dist, bomb_x, bomb_y],
+                          monster_dx, monster_dy, monster_dist, bomb_x, bomb_y, explosion_at_agent],
                          dtype=np.float32)
         return state
 
@@ -131,67 +142,103 @@ class TestCharacter(CharacterEntity):
         """
         A basic reward function:
         """
-        reward = 0
+        reward = -0.1
         done = False
 
-        print("Agent x: ", str(next_state[0]*wrld.width()))
-        print("Agent y: ", str(next_state[1]*wrld.height()))
-        print("Exit x: ", str(next_state[2]*wrld.width()))
-        print("Exit y: ", str(next_state[3]*wrld.height()))
-        print("Monster dx: ", str(next_state[4]*wrld.width()))
-        print("Monster dy: ", str(next_state[5]*wrld.height()))
-        print("Monster dist: ", str(next_state[6]))
-        print("Bomb x: ", str(next_state[7]*wrld.width()))
-        print("Bomb y: ", str(next_state[8]*wrld.height()))
+        print("Last Agent x: ", str(round(state[0]*wrld.width())), "    Current Agent x: ", str(round(next_state[0]*wrld.width())) )
+        print("Last Agent y: ", str(round(state[1]*wrld.height())), "   Current Agent y: ", str(round(next_state[1]*wrld.height())) )
+        print("Last Exit x: ", str(round(state[2]*wrld.width())), "    Current Exit x: ", str(round(next_state[2]*wrld.width())) )
+        print("Last Exit y: ", str(round(state[3]*wrld.height())), "    Current Exit y: ", str(round(next_state[3]*wrld.height())) )
+        print("Last Monster dx: ", str(round(state[4]*wrld.width())), "    Current Monster dx: ", str(round(next_state[4]*wrld.width())))
+        print("Last Monster dy: ", str(round(state[5]*wrld.height())), "    Current Monster dy: ", str(round(next_state[5]*wrld.height())))
+        print("Last Bomb x: ", str(round(state[7]*wrld.width())), "    Current Bomb x: ", str(round(next_state[7]*wrld.width())))
+        print("Last Bomb y: ", str(round(state[8]*wrld.height())), "    Current Bomb y: ", str(round(next_state[8]*wrld.height())))
+
+        if (action == 0):
+            print("Last Action: ", action, ", Moved Up")
+        if (action == 1):
+            print("Last Action: ", action, ", Moved Down")
+        if (action == 2):
+            print("Last Action: ", action, ", Moved Left")
+        if (action == 3):
+            print("Last Action: ", action, ", Moved Right")
+        if (action == 4):
+            print("Last Action: ", action, ", Didn't Move")
+        if (action == 5):
+            print("Last Action: ", action, ", Placed Bomb")
+            
         
-        # # Reward for reaching the exit.
-        # if state[0] == state[2] and state[1] == state[3]:
-        #     reward += 10.0
-        #     done = True
-        #     print("Reached goal: TRUE")
-        # else:
-        #     print("Reached goal: FALSE")
+        # Reward for reaching the exit.
+        if round(next_state[0]*wrld.width()) == round(next_state[2]*wrld.width()) and round(next_state[1]*wrld.height()) == round(next_state[3]*wrld.height()):
+            reward += 10.0
+            done = True
+            print("\nReached goal: TRUE")
+        else:
+            print("\nReached goal: FALSE")
 
-        # # Penalty if the agent is hit by an explosion.
-        # if state[0] == state[7] and state[1] == state[8]:
-        #     reward -= 10.0
-        #     done = True
-        #     print("Hit by explosion: TRUE")
-        # else:
-        #     print("Hit by explosion: FALSE")
+        # Penalty if the agent is hit by an explosion.
+        if wrld.explosion_at(self.x, self.y):
+            reward -= 10.0
+            done = True
+            print("Hit by explosion: TRUE")
+        else:
+            print("Hit by explosion: FALSE")
+        
+        # Penalty for placing a bomb for no reason
+        if action == 5:
+            if round(state[1]*wrld.height()) < wrld.height() - 1:
+                if not wrld.wall_at(round(state[0]*wrld.width()),round(state[1]*wrld.height())+1) and not abs(round(state[4]*wrld.width())) + abs(round(state[5]*wrld.height())) < 3:
+                    reward -= 0.2
+                    print("Bomb placed for no reason: TRUE")
+                else:
+                    # reward += 0.5
+                    print("Bomb placed for no reason: FALSE")
+            elif not abs(round(state[4]*wrld.width())) + abs(round(state[5]*wrld.height())) < 3:
+                reward -= 0.2
+                print("Bomb placed for no reason: TRUE")
+            else:
+                # reward += 0.5
+                print("Bomb placed for no reason: FALSE")
 
-        # if action == 5:
-        #     print("Placed bomb: TRUE")
-        #     if next_state[0] == next_state[7] and next_state[1] == next_state[8]:
-        #         reward -= 1
-        #         print("After Placing Bomb, same location as bomb: TRUE")
-        #     else: 
-        #         print("After Placing Bomb, same location as bomb: FALSE")
-        # else:
-        #     print("Placed bomb: FALSE")
-            
-        # if abs(state[0] - state[7]) == 1/wrld.width() or abs(state[1] - state[8]) == 1/wrld.height():
-        #     print("Within bomb range == TRUE")
-        #     if action == 4:
-        #         reward -= 1
-        #         print("Moved away within bomb range: FALSE")
-        #     else:
-        #         print("Moved away within bomb range: TRUE")
-            
-        #     if next_state[0] == next_state[7] and next_state[1] == next_state[8]:
-        #         reward -= 1
-        #         print("Went back to bomb: TRUE")
-        #     else:
-        #         print("Went back to bomb: FALSE")
-        # else:
-        #     print("Within bomb range: FALSE")
+
+        # Penalty for staying where bomb is located
+        if round(state[0]*wrld.width()) == round(state[7]*wrld.width()) and round(state[1]*wrld.height()) == round(state[8]*wrld.height()):
+            print("Last State at Bomb: TRUE")
+            if round(next_state[0]*wrld.width()) == round(state[7]*wrld.width()) and round(next_state[1]*wrld.height()) == round(state[8]*wrld.height()):
+                reward -= 0.2
+                print("Last State at Bomb and stayed at Bomb: TRUE")
+            else: 
+                print("Last State at Bomb and stayed at Bomb: FALSE")
+        # penalty for going back to where bomb is located or being close to bomb
+        elif abs(round(state[0]*wrld.width()) - round(state[7]*wrld.width())) + abs(round(state[1]*wrld.height()) - round(state[8]*wrld.height())) == 1.0:
+            print("Last State not at Bomb, but in range of Bomb: TRUE")
+            if round(next_state[0]*wrld.width()) == round(state[7]*wrld.width()) and round(next_state[1]*wrld.height()) == round(state[8]*wrld.height()):
+                reward -= 0.2
+                print("Went back to bomb: TRUE")
+            else:
+                print("Went back to bomb: FALSE")
+                if abs(round(next_state[0]*wrld.width()) - round(state[7]*wrld.width())) + abs(round(next_state[1]*wrld.height()) - round(state[8]*wrld.height())) <= 1.0:
+                    reward -= 0.2
+                    print("Moved away completely: FALSE")
+                else:
+                    print("Moved away completely: TRUE")
+        else:
+            print("Last State at Bomb: FALSE")
 
         # # Extra penalty if a monster is dangerously close.
-        # if abs(next_state[4]) <= 2/wrld.width() or abs(next_state[5]) <= 2/wrld.height():
+        # if abs(round(next_state[4]*wrld.width())) + abs(round(next_state[5]*wrld.height())) < 3:
         #     reward -= 2.0
         #     print("Monster close: TRUE")
         # else: 
         #     print("Monster close: FALSE \n")
+
+        # Reward for moving closer to the exit. 
+        if abs(round(next_state[0]*wrld.width()) - round(next_state[2]*wrld.width())) + abs(round(next_state[1]*wrld.height()) - round(next_state[3]*wrld.height())) < abs(round(state[0]*wrld.width()) - round(state[2]*wrld.width())) + abs(round(state[1]*wrld.height()) - round(state[3]*wrld.height())):
+            reward += 0.5
+            print("Moved closer to exit: TRUE")
+        else:
+            reward -= 0.5
+            print("Moved closer to exit: FALSE")
 
         return reward, done
 
@@ -211,22 +258,22 @@ class TestCharacter(CharacterEntity):
             rewards = torch.tensor(rewards, dtype=torch.float32)
             dones = torch.tensor(dones, dtype=torch.bool)
 
-            # # Compute Q-values and targets
-            # q_values = self.__class__.model(states).gather(1, actions.unsqueeze(1)).squeeze(1)
-            # next_q_values = self.__class__.target_model(next_states).max(1)[0]
-            # target = rewards + self.__class__.gamma * next_q_values * (~dones)
+            # Compute Q-values and targets
+            q_values = self.__class__.model(states).gather(1, actions.unsqueeze(1)).squeeze(1)
+            next_q_values = self.__class__.model(next_states).max(1)[0]
+            target = rewards + self.__class__.gamma * next_q_values * (~dones)
 
-            # Compute loss and optimize
-            # loss = self.__class__.loss_fn(q_values, target.detach())
-            # self.__class__.optimizer.zero_grad()
-            # loss.backward()
-            # self.__class__.optimizer.step()
+            #  Compute loss and optimize
+            loss = self.__class__.loss_fn(q_values, target.detach())
+            self.__class__.optimizer.zero_grad()
+            loss.backward()
+            self.__class__.optimizer.step()
 
             # Decay epsilon
             # Only decay epsilon once per episode, not per step
             if len(self.__class__.memory) >= self.__class__.batch_size:
                 if self.__class__.epsilon > self.__class__.epsilon_min:
-                    self.__class__.epsilon *= 0.995  # Slower decay
+                    self.__class__.epsilon *= self.__class__.epsilon_decay  # Slower decay
 
             # Save model every 10 episodes
             # if random.random() < 1 / self.__class__.target_update_freq:
@@ -266,6 +313,7 @@ class TestCharacter(CharacterEntity):
                 self.last_state = None
                 self.last_action = None
                 return
+            print(reward)
         
         # Epsilon-greedy policy: choose a random action with probability epsilon.
         if random.random() < self.__class__.epsilon:
@@ -294,3 +342,4 @@ class TestCharacter(CharacterEntity):
             self.move(0, 0)
         elif action == 5:
             self.place_bomb()
+            self.move(0,0)
