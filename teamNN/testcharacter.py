@@ -37,6 +37,7 @@ class TestCharacter(CharacterEntity):
         self.placing_bomb = False
         self.navigating = False
         self.prev_position = (x, y)
+        self.bomb_cooldown = 0
         self.weights = {
             "bias": 0.0,
             "distance_to_exit": 0.0,
@@ -240,6 +241,7 @@ class TestCharacter(CharacterEntity):
 
       best_dist = self.get_dist_to_bomb(wrld)  
       best_move = (0, 0)  # Default to staying in place
+      possible_moves = []
 
       for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
         nx, ny = self.x + dx, self.y + dy
@@ -249,7 +251,15 @@ class TestCharacter(CharacterEntity):
                 continue
         if wrld.wall_at(nx, ny):
                 continue
-        
+        if wrld.wall_at(nx, ny):
+                continue
+        if wrld.bomb_at(nx, ny):
+                continue
+        possible_moves.append((dx, dy))
+        if possible_moves:
+            best_move = possible_moves[randint(0, len(possible_moves) - 1)]
+        self.move(best_move[0], best_move[1])
+
         # Move only if it increases the distance from bomb **and** moves toward exit
         new_dist = self.get_dist_to_bomb(wrld)
         exit_dist = abs(nx - exit_x) + abs(ny - exit_y)
@@ -563,13 +573,17 @@ class TestCharacter(CharacterEntity):
         return abs(self.x - goal[0]) + abs(self.y - goal[1])
     
     def get_dist_to_bomb(self, wrld):
-        min_dist = float('inf') 
+        min_dist = float('inf')
+        found_bomb = False 
 
         for x in range(wrld.width()):
             for y in range(wrld.height()):
                 if wrld.bomb_at(x, y):
+                    found_bomb = True
                     bomb_dist = abs(self.x - x) + abs(self.y - y)  
                     min_dist = min(min_dist, bomb_dist)  
+        if not found_bomb:
+            return 100
 
         return min_dist if min_dist != float('inf') else 100
 
@@ -607,12 +621,14 @@ class TestCharacter(CharacterEntity):
         goal = self.get_section_goal(wrld)
         astar_path = self.astar(wrld, (self.x, self.y), goal, {}, wrld.time)
 
+        if np.random.rand() < self.epsilon:
+            return actions[randint(0, len(actions) - 1)]
         # Use the A* suggestion if available
-        if astar_path and len(astar_path) > 1:
-            next_x, next_y = astar_path[1]
-            best_action = (next_x - self.x, next_y - self.y)
-            print(f"Following A* action toward section goal: {best_action}")
-            return best_action
+        # if astar_path and len(astar_path) > 1:
+        #     next_x, next_y = astar_path[1]
+        #     best_action = (next_x - self.x, next_y - self.y)
+        #     print(f"Following A* action toward section goal: {best_action}")
+        #     return best_action
 
         # Fall back to Q-learning decision if no valid A* path is found.
         q_values = [(action, self.get_q_value(wrld, action)) for action in actions]
@@ -637,11 +653,16 @@ class TestCharacter(CharacterEntity):
             if f not in self.weights:
                 self.weights[f] = 0.0
             self.weights[f] += self.alpha * error * features[f]
-            #print(f"Updated weights: {self.weights}")
+            print(f"Updated weights: {self.weights}")
 
     def actions_near_wall(self, wrld):
        place_bomb = False
        wall_action = np.array([place_bomb], dtype=bool)
+
+       if self.bomb_cooldown > 0:
+            self.bomb_cooldown -= 1
+            #print(f"Bomb cooldown: {self.bomb_cooldown}")
+            return wall_action
 
        wall_count = 0
        adjacent_walls = []
@@ -653,29 +674,44 @@ class TestCharacter(CharacterEntity):
                     adjacent_walls.append((nx, ny))  
 
        exit_x, exit_y = wrld.exitcell
-       best_move = self.get_best_action(wrld)
 
-       print(f"Wall Count: {wall_count}, Best Move: {best_move}")
+       print(f"Wall Count: {wall_count}, Adjacent Walls: {adjacent_walls}")
 
-       if 1 <= wall_count <= 2:  # If there's at least one but not too many walls around
-            new_x, new_y = self.x + best_move[0], self.y + best_move[1]
+    # If near at least one wall but not fully trapped
+       if 1 <= wall_count <= 2:
+            place_bomb = True
+            self.placing_bomb = True
+            print("Placing bomb near wall...")
+            self.place_bomb()
+            self.bomb_cooldown = 5
 
-        # Ensure coordinates are within bounds before checking for walls
-            if 0 <= new_x < wrld.width() and 0 <= new_y < wrld.height():
-                if wrld.wall_at(new_x, new_y):
-                    place_bomb = True
-                    self.placing_bomb = True  
-                    print("Placing bomb near wall...")
-                    self.place_bomb()
+            print("Placed bomb near wall, now evading explosion!")
+            self.evade_bomb(wrld, exit_x, exit_y)
 
-                    print("Placed bomb near wall, now evading explosion!")
-                    self.evade_bomb(wrld, exit_x, exit_y)
-                else:
-                    print(f"No wall at target ({new_x}, {new_y}), skipping bomb placement.")
-            else:
-                print(f"New position ({new_x}, {new_y}) is out of bounds, cannot place bomb.")
-    
        return wall_action
+       #best_move = self.get_best_action(wrld)
+
+       #print(f"Wall Count: {wall_count}, Best Move: {best_move}")
+
+    #    if 1 <= wall_count <= 2:  # If there's at least one but not too many walls around
+    #         new_x, new_y = self.x + best_move[0], self.y + best_move[1]
+
+    #     # Ensure coordinates are within bounds before checking for walls
+    #         if 0 <= new_x < wrld.width() and 0 <= new_y < wrld.height():
+    #             if wrld.wall_at(new_x, new_y):
+    #                 place_bomb = True
+    #                 self.placing_bomb = True  
+    #                 print("Placing bomb near wall...")
+    #                 self.place_bomb()
+
+    #                 print("Placed bomb near wall, now evading explosion!")
+    #                 self.evade_bomb(wrld, exit_x, exit_y)
+    #             else:
+    #                 print(f"No wall at target ({new_x}, {new_y}), skipping bomb placement.")
+    #         else:
+    #             print(f"New position ({new_x}, {new_y}) is out of bounds, cannot place bomb.")
+    
+    #    return wall_action
 
 
     def get_reward(self, wrld, wall_action):
@@ -692,13 +728,15 @@ class TestCharacter(CharacterEntity):
         self.prev_position = (self.x, self.y)
         
         if new_dist < prev_dist:
-            reward += 15  
-            print("Moved closer to exit! Reward: +15")
+            reward += 20  
+            print("Moved closer to exit! Reward: +20")
         
         bomb_distance = self.get_dist_to_bomb(wrld)
         if bomb_distance > 2:
             reward += 10
             print("Evaded bomb! Reward: +10")
+        elif bomb_distance > 2:
+            reward += 10
         
         if wall_action[0]:
             reward += 20  
@@ -713,7 +751,7 @@ class TestCharacter(CharacterEntity):
             print("Caught by monster! Penalty: -50")
         
         if hasattr(self, 'prev_position') and self.prev_position == (self.x, self.y):
-            reward -= 5  
+            reward -= 10  
             print("Stood still! Penalty: -5")
         
         if bomb_distance <= 2:
@@ -725,12 +763,8 @@ class TestCharacter(CharacterEntity):
         a_star_path = self.astar(wrld, (self.x, self.y), (exit_x, exit_y), explosion_cells={}, current_time=wrld.time)
         # If a valid A* path exists and the current position is on it, give a bonus.
         if a_star_path and (self.x, self.y) in a_star_path[:2]:
-            reward += 10  
-            print("On A* path! Bonus reward: +10")
-        else:
-            # Alternatively, you could compute the distance to the path and reward being close.
-            # For example, use min(distance from current pos to any pos in a_star_path) and give bonus accordingly.
-            pass
+            reward += 40  
+            print("On A* path! Bonus reward: +40")
         
         print(f"Final Reward: {reward}")
         return reward
