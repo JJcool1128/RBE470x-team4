@@ -45,9 +45,9 @@ class TestCharacter(CharacterEntity):
             "bomb_risk": 0.0,
             "action": 0.0
         }
-        self.alpha = 0.1   # Learning rate
-        self.gamma = 0.9   # Discount factor
-        self.epsilon_min = 0.1 # Exploration rate
+        self.alpha = 0.1   
+        self.gamma = 0.9   
+        self.epsilon_min = 0.1 
         self.epsilon = 1.0
         self.epsilon_decay = 0.995
 
@@ -57,8 +57,8 @@ class TestCharacter(CharacterEntity):
     
     def update_epsilon(self):
         """Gradually decay epsilon from 1.0 to epsilon_min over 1000 iterations."""
-        decay_rate = np.log(1.0 / self.epsilon_min) / 1000  # Decay over 1000 steps
-        self.epsilon = max(self.epsilon_min, self.epsilon * np.exp(-decay_rate))  # Exponential decay
+        decay_rate = np.log(1.0 / self.epsilon_min) / 1000  
+        self.epsilon = max(self.epsilon_min, self.epsilon * np.exp(-decay_rate))  
         print(f"Updated epsilon: {self.epsilon:.4f}")
 
 
@@ -81,7 +81,7 @@ class TestCharacter(CharacterEntity):
                 print("State check: EXIT_NEAR_BY")
                 return State.EXIT_NEAR_BY
 
-        # Check for nearby monsters (2 < distance < 4 => MONSTER_NEAR_BY, distance < 2 => ESCAPING)
+        
         from math import sqrt
         for monster_list in wrld.monsters.values():
             for m in monster_list:
@@ -95,12 +95,12 @@ class TestCharacter(CharacterEntity):
                         print("State check: MONSTER_NEAR_BY")
                         return State.MONSTER_NEAR_BY
 
-        # If we’re in the process of placing a bomb, return that state
+        
         if self.placing_bomb:
             print("State check: PLACING_BOMB")
             return State.PLACING_BOMB
 
-        # Check for walls in adjacent cells => WALL_NEAR_BY
+        
         for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
             nx, ny = self.x + dx, self.y + dy
             if 0 <= nx < wrld.width() and 0 <= ny < wrld.height():
@@ -108,39 +108,37 @@ class TestCharacter(CharacterEntity):
                     print("State check: WALL_NEAR_BY")
                     return State.WALL_NEAR_BY
 
-        # Default => STAY_IN_PLACE
         print("State check: STAY_IN_PLACE (default)")
         return State.STAY_IN_PLACE
 
-    # Process game events to update flags
+    
     def process_events(self, events):
         for e in events:
             if e.tpe == Event.BOMB_HIT_MONSTER:
                 print(f"{self.name}'s bomb killed a monster: {e.other.name}")
                 self.killed_monster_recently = True
             elif e.tpe == Event.CHARACTER_FOUND_EXIT:
-                # e.character is the character who found the exit.
+                
                 if e.character == self:
                     print(f"{self.name} found the exit!")
                     self.exited = True
             elif e.tpe == Event.CHARACTER_KILLED_BY_MONSTER:
-                # e.character is the killed character.
+                
                 if e.character == self:
                     print(f"{self.name} was killed by a monster!")
                     self.dead = True
 
     def get_section_goal(self, wrld):
-        section_bottom = wrld.height() - 1  # default: bottom of the world
-        # Search for the next wall row starting from the row below the agent
+        section_bottom = wrld.height() - 1 
         for row in range(self.y + 1, wrld.height()):
-            # Count the number of wall cells in this row
+            
             wall_count = sum(1 for x in range(wrld.width()) if wrld.wall_at(x, row))
-            # If almost the entire row is a wall (adjust the threshold as needed), we are at a section boundary.
+            
             if wall_count >= wrld.width() - 1:
                 section_bottom = row - 1
                 break
 
-        # Now, pick the rightmost cell in that section that is not a wall.
+        
         goal_x = wrld.width() - 1
         while goal_x >= 0 and wrld.wall_at(goal_x, section_bottom):
             goal_x -= 1
@@ -148,7 +146,7 @@ class TestCharacter(CharacterEntity):
 
     # Main decision method called each turn
     def do(self, wrld):
-        # Clone to sensed world, process events
+       
         sensed_wrld = SensedWorld.from_world(wrld)
         (next_sensed, events) = sensed_wrld.next()
         self.process_events(events)
@@ -159,7 +157,7 @@ class TestCharacter(CharacterEntity):
         
         start = (self.x, self.y)
         goal = (wrld.exitcell[0], wrld.exitcell[1])
-        # Retrieve events from the world (this depends on your implementation)
+        
         (new_wrld, events) = wrld.next()  # adjust if necessary
         self.process_events(events)
 
@@ -168,7 +166,7 @@ class TestCharacter(CharacterEntity):
             print("Acting on AVOID_EXPLOSION state")
             return
 
-        # React based on the current state
+        
         if current_state == State.PLACING_BOMB:
             print("Acting on PLACING_BOMB state")
             self.placing_bomb = False
@@ -204,22 +202,11 @@ class TestCharacter(CharacterEntity):
         dx, dy = action
         self.move(dx, dy)
         
-        next_state = wrld.next()  # Get next state after move
+        next_state = wrld.next()  
         reward = self.get_reward(new_wrld, self.actions_near_wall(new_wrld))
         self.update_weights(new_wrld, action, reward, new_wrld)
-        self.prev_position = (self.x, self.y)  # Update previous position
+        self.prev_position = (self.x, self.y)  
 
-
-        # # Check for nearby monsters; if detected, use minimax escape strategy.
-        # for monster in wrld.monsters.values():
-        #     for m in monster:
-        #         mx, my = m.x, m.y
-        #         monster_distance = float(sqrt(abs(self.x - mx)**2 + abs(self.y - my)**2))
-        #         if monster_distance < 4:
-        #             print(f"Monster detected {monster_distance} tiles away! Switching to minimax escape!")
-        #             self.escaping = True
-        #             self.escape_monster(wrld)
-        #             return  
 
     # Get non-wall neighboring positions (up, down, left, right)
     def neighbors_of_4(self, wrld, current: tuple[int, int]) -> list[tuple[int, int]]:
@@ -250,13 +237,13 @@ class TestCharacter(CharacterEntity):
     def evade_bomb(self, wrld, exit_x, exit_y):
 
       best_dist = self.get_dist_to_bomb(wrld)  
-      best_move = (0, 0)  # Default to staying in place
+      best_move = (0, 0)  
       possible_moves = []
 
       for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
         nx, ny = self.x + dx, self.y + dy
 
-        # Ignore out-of-bounds or walls
+    
         if not (0 <= nx < wrld.width() and 0 <= ny < wrld.height()):
                 continue
         if wrld.wall_at(nx, ny):
@@ -270,7 +257,6 @@ class TestCharacter(CharacterEntity):
             best_move = possible_moves[randint(0, len(possible_moves) - 1)]
         self.move(best_move[0], best_move[1])
 
-        # Move only if it increases the distance from bomb **and** moves toward exit
         new_dist = self.get_dist_to_bomb(wrld)
         exit_dist = abs(nx - exit_x) + abs(ny - exit_y)
 
@@ -282,32 +268,32 @@ class TestCharacter(CharacterEntity):
         self.move(best_move[0], best_move[1])
 
     def evade_bomb_monster_vector(self, wrld, monster_x, monster_y):
-        steps_to_move = 2  # or as many steps as you want
+        steps_to_move = 2  
         from math import copysign, sqrt
 
         for _ in range(steps_to_move):
-            dx = self.x - monster_x  # monster->agent x-dist
-            dy = self.y - monster_y  # monster->agent y-dist
+            dx = self.x - monster_x  
+            dy = self.y - monster_y  
 
-            dist = sqrt(dx*dx + dy*dy) or 1  # avoid div by zero
-            # unit vector away from monster
+            dist = sqrt(dx*dx + dy*dy) or 1 
+           
             unit_x = dx/dist
             unit_y = dy/dist
 
-            # Round to nearest int direction
+            
             move_x = 0
             if abs(unit_x) > 0.5:
-                move_x = int(copysign(1, unit_x))  # +1 or -1
+                move_x = int(copysign(1, unit_x))  
 
             move_y = 0
             if abs(unit_y) > 0.5:
                 move_y = int(copysign(1, unit_y))
 
-            # Attempt the move
+            
             new_x = self.x + move_x
             new_y = self.y + move_y
 
-            # If out of bounds or a wall, fallback or pick a simpler move
+            
             if not (0 <= new_x < wrld.width() and 0 <= new_y < wrld.height()):
                 print("Monster vector out-of-bounds, fallback to staying in place.")
                 move_x, move_y = 0, 0
@@ -324,26 +310,22 @@ class TestCharacter(CharacterEntity):
         steps_to_move = 2 
 
         for _ in range(steps_to_move):
-            # Attempt to move up (0, -1)
+            
             new_x = self.x
             new_y = self.y - 1
-
-            # If out of bounds or is a wall, pick a fallback, e.g. (0,1)
             if not (0 <= new_x < wrld.width() and 0 <= new_y < wrld.height()):
                 print("Can't move north (out of bounds). Try fallback (0,1).")
-                new_y = self.y + 1  # fallback down
+                new_y = self.y + 1  
 
             if wrld.wall_at(new_x, new_y):
                 print("Wall north, fallback to (0,1).")
                 new_y = self.y + 1
-
-            # Move that direction
+    
             dy = new_y - self.y
             self.move(0, dy)
-            # Because we're in a loop, we forcibly step the world
-            # so that we actually see 2 separate moves in-game
+            
             (temp_world, _) = wrld.next()
-            # If agent died, break early
+           
             if self.is_dead(temp_world):
                 break
 
@@ -375,7 +357,6 @@ class TestCharacter(CharacterEntity):
         wall_blocked, wall_level = self.wall_level(wrld)
         if wall_blocked:
             print(f"Wall detected at level {wall_level}! Evading...")
-            # Adjust the goal if necessary (for instance, move to a cell just above the wall).
             goal = (goal[0], wall_level - 1)
         path = self.astar(wrld, start, goal, explosion_cells={}, current_time=wrld.time)
         if not path or len(path) < 2:  
@@ -508,7 +489,7 @@ class TestCharacter(CharacterEntity):
         for monster in wrld.monsters.values():
             for m in monster:
                 distance = sqrt((self.x - m.x)**2 + (self.y - m.y)**2)
-                # Adjust threshold: here, distance less than 1.0 is lethal.
+                
                 if distance < 1.0:
                     print("Agent was killed by a monster!")
                     return True
@@ -706,29 +687,7 @@ class TestCharacter(CharacterEntity):
             self.evade_bomb(wrld, exit_x, exit_y)
 
        return wall_action
-       #best_move = self.get_best_action(wrld)
-
-       #print(f"Wall Count: {wall_count}, Best Move: {best_move}")
-
-    #    if 1 <= wall_count <= 2:  # If there's at least one but not too many walls around
-    #         new_x, new_y = self.x + best_move[0], self.y + best_move[1]
-
-    #     # Ensure coordinates are within bounds before checking for walls
-    #         if 0 <= new_x < wrld.width() and 0 <= new_y < wrld.height():
-    #             if wrld.wall_at(new_x, new_y):
-    #                 place_bomb = True
-    #                 self.placing_bomb = True  
-    #                 print("Placing bomb near wall...")
-    #                 self.place_bomb()
-
-    #                 print("Placed bomb near wall, now evading explosion!")
-    #                 self.evade_bomb(wrld, exit_x, exit_y)
-    #             else:
-    #                 print(f"No wall at target ({new_x}, {new_y}), skipping bomb placement.")
-    #         else:
-    #             print(f"New position ({new_x}, {new_y}) is out of bounds, cannot place bomb.")
-    
-    #    return wall_action
+  
 
 
     def get_reward(self, wrld, wall_action):
