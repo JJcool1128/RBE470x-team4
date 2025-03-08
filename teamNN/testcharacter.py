@@ -36,6 +36,7 @@ class TestCharacter(CharacterEntity):
         self.killed_monster_recently = False
         self.placing_bomb = False
         self.navigating = False
+        self.prev_position = (x, y)
         self.weights = {
             "bias": 0.0,
             "distance_to_exit": 0.0,
@@ -51,6 +52,10 @@ class TestCharacter(CharacterEntity):
             self.weights[f'action_{action}'] = 0.0 
 
     def updateState(self, wrld) -> State:
+
+        if self.get_dist_to_bomb(wrld) <= 3:
+            return State.AVOID_EXPLOSION
+
         # Check if agent is dead
         if self.is_dead(wrld):
             print("State check: AGENT_DEAD")
@@ -113,6 +118,23 @@ class TestCharacter(CharacterEntity):
                     print(f"{self.name} was killed by a monster!")
                     self.dead = True
 
+    def get_section_goal(self, wrld):
+        section_bottom = wrld.height() - 1  # default: bottom of the world
+        # Search for the next wall row starting from the row below the agent
+        for row in range(self.y + 1, wrld.height()):
+            # Count the number of wall cells in this row
+            wall_count = sum(1 for x in range(wrld.width()) if wrld.wall_at(x, row))
+            # If almost the entire row is a wall (adjust the threshold as needed), we are at a section boundary.
+            if wall_count >= wrld.width() - 1:
+                section_bottom = row - 1
+                break
+
+        # Now, pick the rightmost cell in that section that is not a wall.
+        goal_x = wrld.width() - 1
+        while goal_x >= 0 and wrld.wall_at(goal_x, section_bottom):
+            goal_x -= 1
+        return (goal_x, section_bottom)
+
     # Main decision method called each turn
     def do(self, wrld):
         # Clone to sensed world, process events
@@ -131,14 +153,13 @@ class TestCharacter(CharacterEntity):
         self.process_events(events)
 
         if current_state == State.AVOID_EXPLOSION:
-            self.evade_bomb(wrld)
+            self.evade_bomb(wrld,exit_x=goal[0], exit_y=goal[1])
             print("Acting on AVOID_EXPLOSION state")
             return
 
         # React based on the current state
         if current_state == State.PLACING_BOMB:
             print("Acting on PLACING_BOMB state")
-            #self.kill_monster(wrld)
             self.placing_bomb = False
             return
 
@@ -166,10 +187,6 @@ class TestCharacter(CharacterEntity):
             print("Agent is dead. Taking no action.")
             self.move(0, 0)
             return
-        
-        bomb_distance = self.get_dist_to_bomb(wrld)
-        if bomb_distance <= 2:
-            return State.AVOID_EXPLOSION
 
         self.escaping = False
         action = self.get_best_action(wrld)
@@ -177,8 +194,10 @@ class TestCharacter(CharacterEntity):
         self.move(dx, dy)
         
         next_state = wrld.next()  # Get next state after move
-        reward = self.get_reward(new_wrld, self.actions_near_wall(wrld))
+        reward = self.get_reward(new_wrld, self.actions_near_wall(new_wrld))
         self.update_weights(new_wrld, action, reward, new_wrld)
+        self.prev_position = (self.x, self.y)  # Update previous position
+
 
         # # Check for nearby monsters; if detected, use minimax escape strategy.
         # for monster in wrld.monsters.values():
@@ -203,23 +222,110 @@ class TestCharacter(CharacterEntity):
                     neighbors.append((nx, ny))
         return neighbors
     
-    def evade_bomb(self, wrld):
-   
-        print("Evading bomb!")
+    def get_dist_to_bomb_at(self, wrld, x, y):
+        """
+        Return the Manhattan distance from cell (x,y) to the nearest bomb,
+        or 100 if no bombs in the grid.
+        """
+        min_dist = float('inf')
+        for bx in range(wrld.width()):
+            for by in range(wrld.height()):
+                if wrld.bomb_at(bx, by):
+                    dist = abs(x - bx) + abs(y - by)
+                    if dist < min_dist:
+                        min_dist = dist
+        return min_dist if min_dist != float('inf') else 100
+    
+    def evade_bomb(self, wrld, exit_x, exit_y):
 
-        best_move = (0, 0)  # Default: Stay in place
-        max_dist = self.get_dist_to_bomb(wrld)  # Current distance
+      best_dist = self.get_dist_to_bomb(wrld)  
+      best_move = (0, 0)  # Default to staying in place
 
-        for move in self.neighbors_of_4(wrld, (self.x, self.y)): 
-            move_x, move_y = move
-            new_dist = abs(move_x - self.x) + abs(move_y - self.y) 
+      for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+        nx, ny = self.x + dx, self.y + dy
 
-        if new_dist > max_dist: 
-            best_move = (move_x - self.x, move_y - self.y)
-            max_dist = new_dist
+        # Ignore out-of-bounds or walls
+        if not (0 <= nx < wrld.width() and 0 <= ny < wrld.height()):
+                continue
+        if wrld.wall_at(nx, ny):
+                continue
+        
+        # Move only if it increases the distance from bomb **and** moves toward exit
+        new_dist = self.get_dist_to_bomb(wrld)
+        exit_dist = abs(nx - exit_x) + abs(ny - exit_y)
 
-        print(f"Evading bomb, moving to: {best_move}")
+        if new_dist > best_dist or exit_dist < abs(self.x - exit_x) + abs(self.y - exit_y):
+            best_move = (dx, dy)
+            best_dist = new_dist
+
+        print(f"Moving {best_move} to avoid explosion and head toward exit!")
         self.move(best_move[0], best_move[1])
+
+    def evade_bomb_monster_vector(self, wrld, monster_x, monster_y):
+        steps_to_move = 2  # or as many steps as you want
+        from math import copysign, sqrt
+
+        for _ in range(steps_to_move):
+            dx = self.x - monster_x  # monster->agent x-dist
+            dy = self.y - monster_y  # monster->agent y-dist
+
+            dist = sqrt(dx*dx + dy*dy) or 1  # avoid div by zero
+            # unit vector away from monster
+            unit_x = dx/dist
+            unit_y = dy/dist
+
+            # Round to nearest int direction
+            move_x = 0
+            if abs(unit_x) > 0.5:
+                move_x = int(copysign(1, unit_x))  # +1 or -1
+
+            move_y = 0
+            if abs(unit_y) > 0.5:
+                move_y = int(copysign(1, unit_y))
+
+            # Attempt the move
+            new_x = self.x + move_x
+            new_y = self.y + move_y
+
+            # If out of bounds or a wall, fallback or pick a simpler move
+            if not (0 <= new_x < wrld.width() and 0 <= new_y < wrld.height()):
+                print("Monster vector out-of-bounds, fallback to staying in place.")
+                move_x, move_y = 0, 0
+            elif wrld.wall_at(new_x, new_y):
+                print("Wall encountered, fallback to staying in place.")
+                move_x, move_y = 0, 0
+
+            self.move(move_x, move_y)
+            (temp_world, _) = wrld.next()
+            if self.is_dead(temp_world):
+                break
+
+    def avoid_explosion_after_wall_bomb(self, wrld):
+        steps_to_move = 2 
+
+        for _ in range(steps_to_move):
+            # Attempt to move up (0, -1)
+            new_x = self.x
+            new_y = self.y - 1
+
+            # If out of bounds or is a wall, pick a fallback, e.g. (0,1)
+            if not (0 <= new_x < wrld.width() and 0 <= new_y < wrld.height()):
+                print("Can't move north (out of bounds). Try fallback (0,1).")
+                new_y = self.y + 1  # fallback down
+
+            if wrld.wall_at(new_x, new_y):
+                print("Wall north, fallback to (0,1).")
+                new_y = self.y + 1
+
+            # Move that direction
+            dy = new_y - self.y
+            self.move(0, dy)
+            # Because we're in a loop, we forcibly step the world
+            # so that we actually see 2 separate moves in-game
+            (temp_world, _) = wrld.next()
+            # If agent died, break early
+            if self.is_dead(temp_world):
+                break
 
     # Manhattan distance heuristic for A*
     def heuristic(self, a: tuple[int, int], b: tuple[int, int]) -> int:
@@ -245,7 +351,12 @@ class TestCharacter(CharacterEntity):
     # Follow the A* path towards the exit
     def follow_path(self, wrld):
         start = (self.x, self.y)
-        goal = (wrld.exitcell[0], wrld.exitcell[1])
+        goal = self.get_section_goal(wrld)
+        wall_blocked, wall_level = self.wall_level(wrld)
+        if wall_blocked:
+            print(f"Wall detected at level {wall_level}! Evading...")
+            # Adjust the goal if necessary (for instance, move to a cell just above the wall).
+            goal = (goal[0], wall_level - 1)
         path = self.astar(wrld, start, goal, explosion_cells={}, current_time=wrld.time)
         if not path or len(path) < 2:  
             print("No valid path found, staying in place.")
@@ -254,6 +365,7 @@ class TestCharacter(CharacterEntity):
         next_x, next_y = path[1]
         dx, dy = next_x - start[0], next_y - start[1]
         self.move(dx, dy)
+
 
     # Try to navigate carefully by choosing safe neighboring moves
     def navigate_carefully(self, wrld):
@@ -381,6 +493,61 @@ class TestCharacter(CharacterEntity):
                     print("Agent was killed by a monster!")
                     return True
         return False
+    
+    def wall_level(self, wrld):
+        wall_blocked = False
+        wall_level = 0
+        count = 0
+        for dy in range(wrld.height()-1):
+            count = 0
+            for dx in range(wrld.width()-1):
+                if wrld.wall_at(dx, dy):
+                    count += 1
+                if count == 8:
+                    wall_blocked = True
+                    wall_level = dy
+                    break
+            if wall_blocked:
+                break
+        
+        return wall_blocked, wall_level
+    
+    def astar(self, wrld, start: tuple[int, int], goal: tuple[int, int], explosion_cells, current_time) -> list[tuple[int, int]]:
+        print("A* started...")
+        frontier = PriorityQueue()
+        frontier.put((0, start))
+        came_from = {start: None}
+        cost_so_far = {start: 0}
+        while not frontier.empty():
+            _, current = frontier.get()
+            if current == goal:
+                print("Goal reached!")
+                break
+            for next in self.neighbors_of_4(wrld, current):
+                if next in explosion_cells:
+                    explosion_time = explosion_cells[next]
+                    time_to_explode = explosion_time - current_time
+                    if time_to_explode <= 2:
+                        print(f"Explosion detected at {next} in {time_to_explode} turns!")
+                        continue
+                new_cost = cost_so_far[current] + self.cost(wrld, current, next, explosion_cells, current_time)
+                if next not in cost_so_far or new_cost < cost_so_far[next]:
+                    cost_so_far[next] = new_cost
+                    priority = new_cost + self.heuristic(goal, next)
+                    frontier.put((priority, next))
+                    came_from[next] = current
+        
+        if goal not in came_from:
+            print("No valid path to goal!")
+            return []
+        path = []
+        current = goal
+        while current is not None:
+            path.append(current)
+            current = came_from[current]
+        path.reverse()
+        print(f"Final path: {path}")
+        return path
 
     # APPROXIMATE Q-LEARNING ALGORITHM
 
@@ -407,15 +574,24 @@ class TestCharacter(CharacterEntity):
         return min_dist if min_dist != float('inf') else 100
 
     def state_features(self, wrld, action) -> dict:
-        # Returns a dictionary of features for the current state and action
         features = {
             "bias": 1.0,
-            "distance_to_monster": self.get_dist_to_monster(wrld),  # changed key name
-            "distance_to_exit": self.get_dist_to_exit(wrld),          # key already matches
+            "distance_to_monster": self.get_dist_to_monster(wrld),
+            "distance_to_exit": self.get_dist_to_exit(wrld),  # You may wish to adjust or rename this feature
             "bomb_risk": 1.0 if wrld.explosion_at(self.x, self.y) or wrld.bomb_at(self.x, self.y) else 0.0,
             "action_x": action[0],
             "action_y": action[1]
         }
+        
+        # Use the section goal for computing the A* path
+        goal = self.get_section_goal(wrld)
+        a_star_path = self.astar(wrld, (self.x, self.y), goal, explosion_cells={}, current_time=wrld.time)
+        if a_star_path:
+            # Compute the minimal Manhattan distance from the current position to any point on the A* path.
+            distance_to_path = min(abs(self.x - pos[0]) + abs(self.y - pos[1]) for pos in a_star_path)
+        else:
+            distance_to_path = 100
+        features["a_star_alignment"] = -distance_to_path
         return features
     
     def get_q_value(self, wrld, action):
@@ -427,18 +603,23 @@ class TestCharacter(CharacterEntity):
     
 
     def get_best_action(self, wrld):
-        actions = [(0, 0), (0, 1), (0, -1), (1, 0), (-1, 0)]  # Stay, move up, down, right, left
-        if randint(0, 100) < self.epsilon * 100:  # Explore
-            return actions[randint(0, len(actions) - 1)]
-        
+        actions = [(0, 0), (0, 1), (0, -1), (1, 0), (-1, 0)]
+        goal = self.get_section_goal(wrld)
+        astar_path = self.astar(wrld, (self.x, self.y), goal, {}, wrld.time)
+
+        # Use the A* suggestion if available
+        if astar_path and len(astar_path) > 1:
+            next_x, next_y = astar_path[1]
+            best_action = (next_x - self.x, next_y - self.y)
+            print(f"Following A* action toward section goal: {best_action}")
+            return best_action
+
+        # Fall back to Q-learning decision if no valid A* path is found.
         q_values = [(action, self.get_q_value(wrld, action)) for action in actions]
         max_q = max(q_values, key=lambda x: x[1])[1]
-
         best_actions = [action for action, q in q_values if q == max_q]
-    
         return best_actions[randint(0, len(best_actions) - 1)]
-        
-        
+
 
     def update_weights(self, wrld, action, reward, next_state):
         """
@@ -459,80 +640,98 @@ class TestCharacter(CharacterEntity):
             #print(f"Updated weights: {self.weights}")
 
     def actions_near_wall(self, wrld):
-        place_bomb = False
-        wall_action = np.array([place_bomb],dtype=bool)
-        # if all(wrld.wall_at(self.x + dx, self.y + dy) for dx, dy in [(1,0), (-1,0), (0,1), (0,-1)]) and State.WALL_NEAR_BY:
-        #     place_bomb = True
-        #     self.updateState(wrld) == State.PLACING_BOMB
-        #     self.place_bomb()
-        wall_count = sum(1 for dx, dy in [(1,0), (-1,0), (0,1), (0,-1)] if wrld.wall_at(self.x + dx, self.y + dy))
+       place_bomb = False
+       wall_action = np.array([place_bomb], dtype=bool)
 
-    # Place a bomb if adjacent to at least one wall, but not completely trapped
-        if 1 <= wall_count <= 2:  
-            place_bomb = True
-            self.placing_bomb = True  # Track that a bomb is placed
-            self.place_bomb()
-        return wall_action
+       wall_count = 0
+       adjacent_walls = []
+       for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            nx, ny = self.x + dx, self.y + dy
+            if 0 <= nx < wrld.width() and 0 <= ny < wrld.height():
+                if wrld.wall_at(nx, ny):
+                    wall_count += 1
+                    adjacent_walls.append((nx, ny))  
+
+       exit_x, exit_y = wrld.exitcell
+       best_move = self.get_best_action(wrld)
+
+       print(f"Wall Count: {wall_count}, Best Move: {best_move}")
+
+       if 1 <= wall_count <= 2:  # If there's at least one but not too many walls around
+            new_x, new_y = self.x + best_move[0], self.y + best_move[1]
+
+        # Ensure coordinates are within bounds before checking for walls
+            if 0 <= new_x < wrld.width() and 0 <= new_y < wrld.height():
+                if wrld.wall_at(new_x, new_y):
+                    place_bomb = True
+                    self.placing_bomb = True  
+                    print("Placing bomb near wall...")
+                    self.place_bomb()
+
+                    print("Placed bomb near wall, now evading explosion!")
+                    self.evade_bomb(wrld, exit_x, exit_y)
+                else:
+                    print(f"No wall at target ({new_x}, {new_y}), skipping bomb placement.")
+            else:
+                print(f"New position ({new_x}, {new_y}) is out of bounds, cannot place bomb.")
+    
+       return wall_action
 
 
     def get_reward(self, wrld, wall_action):
-        """
-        Reward function based on state.
-        """
         reward = 0
+        exit_x, exit_y = wrld.exitcell
 
-        if wrld.explosion_at(self.x, self.y):  # Died
-            reward -= 100
-        elif (self.x, self.y) == wrld.exitcell:  # Reached exit
-            reward += 100
-        elif any(m.x == self.x and m.y == self.y for sublist in wrld.monsters.values() for m in sublist):  # Caught by monster
-            reward -= 50
-        if wall_action[0]: 
-            reward += 50
-            print("Bomb placed near wall! Reward given!")
+        # Previous distance calculation
+        if hasattr(self, 'prev_position'):
+            prev_x, prev_y = self.prev_position
+            prev_dist = abs(prev_x - exit_x) + abs(prev_y - exit_y)
+        else:
+            prev_dist = abs(self.x - exit_x) + abs(self.y - exit_y)
+        new_dist = abs(self.x - exit_x) + abs(self.y - exit_y)
+        self.prev_position = (self.x, self.y)
+        
+        if new_dist < prev_dist:
+            reward += 15  
+            print("Moved closer to exit! Reward: +15")
         
         bomb_distance = self.get_dist_to_bomb(wrld)
-        if bomb_distance <= 2:  # If within explosion range
-            penalty = (3 - bomb_distance) * 5  # Stronger penalty for closer distance
+        if bomb_distance > 2:
+            reward += 10
+            print("Evaded bomb! Reward: +10")
+        
+        if wall_action[0]:
+            reward += 20  
+            print("Smart bomb placement! Reward: +20")
+        
+        if wrld.explosion_at(self.x, self.y):
+            reward -= 100  
+            print("Hit by explosion! Penalty: -100")
+        
+        if any(m.x == self.x and m.y == self.y for sublist in wrld.monsters.values() for m in sublist):
+            reward -= 50  
+            print("Caught by monster! Penalty: -50")
+        
+        if hasattr(self, 'prev_position') and self.prev_position == (self.x, self.y):
+            reward -= 5  
+            print("Stood still! Penalty: -5")
+        
+        if bomb_distance <= 2:
+            penalty = (3 - bomb_distance) * 5  
             reward -= penalty
-
-        reward -= 1  
-        print(f"Reward: {reward}, Bomb Placed: {wall_action[0]}") 
+            print(f"Too close to bomb! Penalty: -{penalty}")
+        
+        # *** A* Path Reward Shaping ***
+        a_star_path = self.astar(wrld, (self.x, self.y), (exit_x, exit_y), explosion_cells={}, current_time=wrld.time)
+        # If a valid A* path exists and the current position is on it, give a bonus.
+        if a_star_path and (self.x, self.y) in a_star_path[:2]:
+            reward += 10  
+            print("On A* path! Bonus reward: +10")
+        else:
+            # Alternatively, you could compute the distance to the path and reward being close.
+            # For example, use min(distance from current pos to any pos in a_star_path) and give bonus accordingly.
+            pass
+        
+        print(f"Final Reward: {reward}")
         return reward
 
-    # avoiding bomb - manhattan dist btw agent and bomb, update 
-
-    # Attempt to kill a monster by placing a bomb and escaping
-    # def kill_monster(self, wrld):
-    #     self.placing_bomb = True
-    #     current_x, current_y = self.x, self.y
-    #     explosion_cells = {}
-    #     explosion_range = wrld.expl_range  
-    #     explosion_time = wrld.time + 1  
-    #     explosion_duration = wrld.expl_duration  
-    #     for d in range(-explosion_range, explosion_range + 1):
-    #         if 0 <= current_x + d < wrld.width():
-    #             explosion_cells[(current_x + d, current_y)] = explosion_time + explosion_duration
-    #         if 0 <= current_y + d < wrld.height():
-    #             explosion_cells[(current_x, current_y + d)] = explosion_time + explosion_duration
-    #     safe_moves = []
-    #     for move in self.neighbors_of_4(wrld, (current_x, current_y)):
-    #         if move not in explosion_cells:
-    #             safe_moves.append(move)
-    #     if safe_moves:
-    #         best_move = max(safe_moves, key=lambda m: self.heuristic(m, (wrld.exitcell[0], wrld.exitcell[1])))
-    #         dx, dy = best_move[0] - current_x, best_move[1] - current_y
-    #         print(f" Fast escape to {best_move}, avoiding explosion!")
-    #         self.place_bomb()
-    #         self.move(dx, dy)
-    #         return 
-    #     print(" No immediate safe move. Using A* for escape.")
-    #     safe_path = self.astar(wrld, (current_x, current_y), (wrld.exitcell[0], wrld.exitcell[1]), explosion_cells, wrld.time)
-    #     if safe_path and len(safe_path) > 2:
-    #         print(" Found a longer escape path!")
-    #         self.place_bomb()
-    #         next_x, next_y = safe_path[1]
-    #         dx, dy = next_x - current_x, next_y - current_y
-    #         self.move(dx, dy)
-    #     else:
-    #         print(" No safe escape! Bomb placement canceled.")
