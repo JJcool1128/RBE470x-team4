@@ -47,10 +47,20 @@ class TestCharacter(CharacterEntity):
         }
         self.alpha = 0.1   # Learning rate
         self.gamma = 0.9   # Discount factor
-        self.epsilon = 0.1 # Exploration rate
+        self.epsilon_min = 0.1 # Exploration rate
+        self.epsilon = 1.0
+        self.epsilon_decay = 0.995
+
         actions = [(0, 0), (0, 1), (0, -1), (1, 0), (-1, 0)]
         for action in actions:
             self.weights[f'action_{action}'] = 0.0 
+    
+    def update_epsilon(self):
+        """Gradually decay epsilon from 1.0 to epsilon_min over 1000 iterations."""
+        decay_rate = np.log(1.0 / self.epsilon_min) / 1000  # Decay over 1000 steps
+        self.epsilon = max(self.epsilon_min, self.epsilon * np.exp(-decay_rate))  # Exponential decay
+        print(f"Updated epsilon: {self.epsilon:.4f}")
+
 
     def updateState(self, wrld) -> State:
 
@@ -588,13 +598,15 @@ class TestCharacter(CharacterEntity):
         return min_dist if min_dist != float('inf') else 100
 
     def state_features(self, wrld, action) -> dict:
+
+        max_dist = max(wrld.width(), wrld.height())
         features = {
             "bias": 1.0,
-            "distance_to_monster": self.get_dist_to_monster(wrld),
-            "distance_to_exit": self.get_dist_to_exit(wrld),  # You may wish to adjust or rename this feature
+            "distance_to_monster": self.get_dist_to_monster(wrld) / max_dist,  
+            "distance_to_exit": self.get_dist_to_exit(wrld) / max_dist,  # You may wish to adjust or rename this feature
             "bomb_risk": 1.0 if wrld.explosion_at(self.x, self.y) or wrld.bomb_at(self.x, self.y) else 0.0,
-            "action_x": action[0],
-            "action_y": action[1]
+            "action_x": action[0] / max_dist,
+            "action_y": action[1] / max_dist
         }
         
         # Use the section goal for computing the A* path
@@ -604,7 +616,7 @@ class TestCharacter(CharacterEntity):
             # Compute the minimal Manhattan distance from the current position to any point on the A* path.
             distance_to_path = min(abs(self.x - pos[0]) + abs(self.y - pos[1]) for pos in a_star_path)
         else:
-            distance_to_path = 100
+            distance_to_path = 1
         features["a_star_alignment"] = -distance_to_path
         return features
     
@@ -623,17 +635,19 @@ class TestCharacter(CharacterEntity):
 
         if np.random.rand() < self.epsilon:
             return actions[randint(0, len(actions) - 1)]
-        # Use the A* suggestion if available
-        # if astar_path and len(astar_path) > 1:
-        #     next_x, next_y = astar_path[1]
-        #     best_action = (next_x - self.x, next_y - self.y)
-        #     print(f"Following A* action toward section goal: {best_action}")
+        #Use the A* suggestion if available
+        if astar_path and len(astar_path) > 1:
+            next_x, next_y = astar_path[1]
+            best_action = (next_x - self.x, next_y - self.y)
+            print(f"Following A* action toward section goal: {best_action}")
         #     return best_action
-
+        else:
         # Fall back to Q-learning decision if no valid A* path is found.
-        q_values = [(action, self.get_q_value(wrld, action)) for action in actions]
-        max_q = max(q_values, key=lambda x: x[1])[1]
-        best_actions = [action for action, q in q_values if q == max_q]
+            q_values = [(action, self.get_q_value(wrld, action)) for action in actions]
+            max_q = max(q_values, key=lambda x: x[1])[1]
+            best_actions = [action for action, q in q_values if q == max_q]
+        self.update_epsilon()
+
         return best_actions[randint(0, len(best_actions) - 1)]
 
 
@@ -648,11 +662,14 @@ class TestCharacter(CharacterEntity):
         target = reward + self.gamma * max_next_q
         error = target - q_value
 
+        #adjusted_alpha = self.alpha * (1 - self.epsilon)
+        adjusted_alpha = self.alpha
+
         # Update weights
         for f in features:
             if f not in self.weights:
                 self.weights[f] = 0.0
-            self.weights[f] += self.alpha * error * features[f]
+            self.weights[f] += adjusted_alpha * error * features[f]
             print(f"Updated weights: {self.weights}")
 
     def actions_near_wall(self, wrld):
