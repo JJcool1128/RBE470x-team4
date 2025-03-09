@@ -9,7 +9,7 @@ from game import Game
 
 # TODO This is your code!
 reward_history = []
-for i in range(300):
+for i in range(1000):
     sys.path.insert(1, '../teamNN')
     from testcharacter import TestCharacter
 
