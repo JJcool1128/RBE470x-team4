@@ -5,6 +5,9 @@ from events import Event
 import random
 import numpy as np
 from collections import deque
+from sensed_world import SensedWorld
+from events import Event
+import time
 
 
 # Import PyTorch for the neural network implementation.
@@ -12,7 +15,7 @@ import torch
 import torch.nn as nn
 import torch.optim as opti
 
-# Define the DQN neural network. This network takes a state vector (here of length 8)
+# Defines the DQN neural network. This network takes a state vector 
 # and outputs Q-values for 6 discrete actions:
 #   0: move up, 1: move down, 2: move left, 3: move right, 4: stay, 5: place bomb.
 class DQN(nn.Module):
@@ -31,53 +34,59 @@ class DQN(nn.Module):
 class TestCharacter(CharacterEntity):
     print("DQN TestCharacter class loaded!")
     
-    # --- DQN Hyperparameters and shared objects ---
     input_dim = 10    # Size of our state vector (see get_state below)
-    output_dim = 6   # Number of actions (up, down, left, right, stay, bomb)
+    output_dim = 5   # Number of actions (up, down, left, right, stay, bomb)
+
+    # DQN Hyperparameters
+    gamma = 0.995
+    epsilon = 1.0       # Initial exploration rate
+    epsilon_min = 0.2
+    epsilon_decay = 0.99
+    batch_size = 32
+    target_update_freq = 100  # Update target network every 50 episodes
+
+    # We'll keep a global step counter to know when to do updates
+    global_training_steps = 0
+
     # Our Q-network is defined as a class variable so that its memory and training
     # persist across episodes.
     # Our main Q-network
     model = DQN(input_dim, output_dim)
-    optimizer = opti.Adam(model.parameters(), lr=0.001)
+    optimizer = opti.Adam(model.parameters(), lr=0.0005)
     loss_fn = nn.MSELoss()
+
+    # Add Target Network for Double DQN
+    target_model = DQN(input_dim, output_dim)
+
     memory = deque(maxlen=2000)
-
-    # # Add Target Network (to stabilize learning)
-    # target_model = DQN(input_dim, output_dim)
-    # target_model.load_state_dict(model.state_dict())  # Copy initial weights
-    # target_model.eval()  # Target network is only used for computing Q-targets
-
-    # DQN Hyperparameters
-    gamma = 0.99
-    epsilon = 1.0       # Initial exploration rate
-    epsilon_min = 0.1
-    epsilon_decay = 0.995  # Slower decay to prevent early exploitation
-    batch_size = 32
-    target_update_freq = 50  # Update target network every 50 episodes
 
     def __init__(self, name, avatar, x, y):
         super().__init__(name, avatar, x, y)
         # To record the previous state and action for the transition update.
         self.last_state = None
         self.last_action = None
-        # try:
-        #     self.__class__.target_model.load_state_dict(self.__class__.model.state_dict())
-        #     # self.__class__.model.eval()  # Switch to evaluation mode
-        #     # self.__class__.epsilon = 0.05  # Reduce randomness for deployment
-        #     print("Loaded trained model successfully!")
-        # except FileNotFoundError:
-        #     print("No pre-trained model found. Training from scratch.")
 
-    # --- State representation ---
+        self.won = False
+
+        self.bomb_exists = False
+
+        self.crossed_levels = {
+            4:  False,
+            8:  False,
+            12: False,
+            16: False
+        }
+
+        try:
+            self.__class__.model.load_state_dict(torch.load("dqn_bomberman.pth"))
+            self.__class__.model.eval()
+            print("Model loaded successfully!")
+        except FileNotFoundError:
+            # If the file doesn't exist yet, just continue with random initialization
+            print("Model file not found. Continuing with a randomly initialized network.")
+
     def get_state(self, wrld):
-        """
-        Build a simple state vector:
-         - Agent's x and y normalized by grid width/height.
-         - Exit cell's x and y normalized.
-         - Relative x and y difference (normalized) and Manhattan distance (normalized)
-           to the closest monster (if any).
-         - 1.0 if a bomb is on the current cell, else 0.0.
-        """
+
         width = wrld.width() 
         height = wrld.height() 
         agent_x = self.x / width
@@ -114,222 +123,275 @@ class TestCharacter(CharacterEntity):
 
         explosion_at_agent = 1.0 if wrld.explosion_at(self.x, self.y) else 0.0
 
-        # explosion_pos_list = []
-        # for dx in range(wrld.width() - 1):
-        #     for dy in range(wrld.height() - 1):
-        #         if wrld.explosion_at(dx,dy):
-        #             explosion_x = dx / width
-        #             explosion_y = dy / height
-        #             explosion_pos_list.append((explosion_x, explosion_y))
-        #         else:
-        #             explosion_x = -1.0
-        #             explosion_y = -1.0
-        
-        # for e in events:
-        #     if e.character == self:
-        #         if e.tpe == Event.BOMB_HIT_CHARACTER or e.tpe == Event.CHARACTER_KILLED_BY_MONSTER:
-        #             dead_agent = True
-        #             print("Agent dead")
-
-
         state = np.array([agent_x, agent_y, exit_x, exit_y,
                           monster_dx, monster_dy, monster_dist, bomb_x, bomb_y, explosion_at_agent],
                          dtype=np.float32)
         return state
 
-    # --- Reward function ---
-    def get_reward(self, wrld, state, next_state, action):
-        """
-        A basic reward function:
-        """
+    def get_reward(self, old_state, next_state, events, new_wrld, action):
         reward = -0.1
         done = False
 
-        print("Last Agent x: ", str(round(state[0]*wrld.width())), "    Current Agent x: ", str(round(next_state[0]*wrld.width())) )
-        print("Last Agent y: ", str(round(state[1]*wrld.height())), "   Current Agent y: ", str(round(next_state[1]*wrld.height())) )
-        print("Last Exit x: ", str(round(state[2]*wrld.width())), "    Current Exit x: ", str(round(next_state[2]*wrld.width())) )
-        print("Last Exit y: ", str(round(state[3]*wrld.height())), "    Current Exit y: ", str(round(next_state[3]*wrld.height())) )
-        print("Last Monster dx: ", str(round(state[4]*wrld.width())), "    Current Monster dx: ", str(round(next_state[4]*wrld.width())))
-        print("Last Monster dy: ", str(round(state[5]*wrld.height())), "    Current Monster dy: ", str(round(next_state[5]*wrld.height())))
-        print("Last Bomb x: ", str(round(state[7]*wrld.width())), "    Current Bomb x: ", str(round(next_state[7]*wrld.width())))
-        print("Last Bomb y: ", str(round(state[8]*wrld.height())), "    Current Bomb y: ", str(round(next_state[8]*wrld.height())))
+        # print("Last Agent x: ", str(round(old_state[0]*new_wrld.width())), "    Current Agent x: ", str(round(next_state[0]*new_wrld.width())) )
+        # print("Last Agent y: ", str(round(old_state[1]*new_wrld.height())), "   Current Agent y: ", str(round(next_state[1]*new_wrld.height())) )
+        # print("Last Exit x: ", str(round(old_state[2]*new_wrld.width())), "    Current Exit x: ", str(round(next_state[2]*new_wrld.width())) )
+        # print("Last Exit y: ", str(round(old_state[3]*new_wrld.height())), "    Current Exit y: ", str(round(next_state[3]*new_wrld.height())) )
+        # print("Last Monster dx: ", str(round(old_state[4]*new_wrld.width())), "    Current Monster dx: ", str(round(next_state[4]*new_wrld.width())))
+        # print("Last Monster dy: ", str(round(old_state[5]*new_wrld.height())), "    Current Monster dy: ", str(round(next_state[5]*new_wrld.height())))
+        # print("Last Bomb x: ", str(round(old_state[7]*new_wrld.width())), "    Current Bomb x: ", str(round(next_state[7]*new_wrld.width())))
+        # print("Last Bomb y: ", str(round(old_state[8]*new_wrld.height())), "    Current Bomb y: ", str(round(next_state[8]*new_wrld.height())))
 
-        if (action == 0):
-            print("Last Action: ", action, ", Moved Up")
-        if (action == 1):
-            print("Last Action: ", action, ", Moved Down")
-        if (action == 2):
-            print("Last Action: ", action, ", Moved Left")
-        if (action == 3):
-            print("Last Action: ", action, ", Moved Right")
-        if (action == 4):
-            print("Last Action: ", action, ", Didn't Move")
-        if (action == 5):
-            print("Last Action: ", action, ", Placed Bomb")
+        me_in_clone = new_wrld.me(self)
+
+        for ev in events:
+            # REACHED EXIT?
+            if (ev.tpe == Event.CHARACTER_FOUND_EXIT 
+                # and me_in_clone is not None
+                # and ev.character is not None 
+                # and ev.character.name == me_in_clone.name
+                ):
+                reward += 200.0
+                print("Character Found EXIT (it was me_in_clone!)")
+                done = True
+                self.won = True
+
+            # KILLED BY MONSTER?
+            if (ev.tpe == Event.CHARACTER_KILLED_BY_MONSTER
+                # and me_in_clone is not None
+                # and ev.character is not None
+                # and ev.character.name == me_in_clone.name
+                ):
+                reward -= 50.0
+                print("Character Killed by MONSTER (it was me!)")
+                done = True
+
+            # HIT BY BOMB EXPLOSION?
+            if (ev.tpe == Event.BOMB_HIT_CHARACTER
+                # and me_in_clone is not None
+                # and ev.other is not None
+                # and ev.other.name == me_in_clone.name
+                ):
+                reward -= 50.0
+                print("Character Killed by BOMB (it was me!)")
+                done = True
             
-        
-        # Reward for reaching the exit.
-        if round(next_state[0]*wrld.width()) == round(next_state[2]*wrld.width()) and round(next_state[1]*wrld.height()) == round(next_state[3]*wrld.height()):
-            reward += 10.0
-            done = True
-            print("\nReached goal: TRUE")
-        else:
-            print("\nReached goal: FALSE")
+            if (ev.tpe == Event.BOMB_HIT_MONSTER
+                # and me_in_clone is not None
+                # and ev.other is not None
+                # and ev.other.name == me_in_clone.name
+                ):
+                reward += 50.0
+                print("MONSTER Killed by BOMB (it was me!)")
+                done = True
 
-        # Penalty if the agent is hit by an explosion.
-        if wrld.explosion_at(self.x, self.y):
-            reward -= 10.0
-            done = True
-            print("Hit by explosion: TRUE")
-        else:
-            print("Hit by explosion: FALSE")
+            if ev.tpe == Event.BOMB_HIT_WALL:
+                reward += 5.0  
+                print("Bomb destroyed a wall!")
+
+        # 2) Extra shaping: did we move closer to the exit?
+        old_dist_to_exit = abs(round(old_state[0]*new_wrld.width()) - round(old_state[2]*new_wrld.width())) \
+                         + abs(round(old_state[1]*new_wrld.height()) - round(old_state[3]*new_wrld.height()))
+        new_dist_to_exit = abs(round(next_state[0]*new_wrld.width()) - round(next_state[2]*new_wrld.width())) \
+                         + abs(round(next_state[1]*new_wrld.height()) - round(next_state[3]*new_wrld.height()))
+        if new_dist_to_exit < old_dist_to_exit:
+            reward += 1
+        elif new_dist_to_exit > old_dist_to_exit:
+            reward -= 1
         
         # Penalty for placing a bomb for no reason
-        if action == 5:
-            if round(state[1]*wrld.height()) < wrld.height() - 1:
-                if not wrld.wall_at(round(state[0]*wrld.width()),round(state[1]*wrld.height())+1) and not abs(round(state[4]*wrld.width())) + abs(round(state[5]*wrld.height())) < 3:
-                    reward -= 0.2
-                    print("Bomb placed for no reason: TRUE")
+        if not self.bomb_exists:
+            if action == 4:
+                if round(old_state[1]*new_wrld.height()) < new_wrld.height() - 1:
+                    if new_wrld.wall_at(round(old_state[0]*new_wrld.width()),round(old_state[1]*new_wrld.height())+1):
+                        reward += 1
+                        # print("Bomb placed near wall: TRUE")
+                    elif not (abs(round(old_state[4]*new_wrld.width())) + abs(round(old_state[5]*new_wrld.height()))) < 4:
+                        reward -= 1
+                        # print("Bomb placed for no reason: TRUE")
+                    # else:
+                    #     print("Bomb placed for no reason: FALSE")
+                elif not abs(round(old_state[4]*new_wrld.width())) + abs(round(old_state[5]*new_wrld.height())) < 4:
+                    reward -= 1
+                    # print("Bomb placed for no reason: TRUE")
                 else:
-                    # reward += 0.5
-                    print("Bomb placed for no reason: FALSE")
-            elif not abs(round(state[4]*wrld.width())) + abs(round(state[5]*wrld.height())) < 3:
-                reward -= 0.2
-                print("Bomb placed for no reason: TRUE")
+                    reward += 1
+                    # print("Bomb placed for no reason: FALSE")
+
+        # Penalty for being close to a monster
+        if (np.sqrt((round(old_state[4]*new_wrld.width())**2 + round(old_state[5]*new_wrld.height())**2))) < 3:
+            # print("Agent was close to monster: TRUE")
+            if (np.sqrt((round(next_state[4]*new_wrld.width())**2) + np.sqrt(round(next_state[5]*new_wrld.height())**2))) < (np.sqrt((round(old_state[4]*new_wrld.width())**2 + round(old_state[5]*new_wrld.height())**2))):
+                reward -= 1
+                # print("Agent was close to monster and went closer: TRUE")
             else:
-                # reward += 0.5
-                print("Bomb placed for no reason: FALSE")
+                reward += 1
+                # print("Agent was close to monster and went closer: FALSE")
+        # else:
+        #     print("Agent was close to monster: FALSE")
 
-
-        # Penalty for staying where bomb is located
-        if round(state[0]*wrld.width()) == round(state[7]*wrld.width()) and round(state[1]*wrld.height()) == round(state[8]*wrld.height()):
-            print("Last State at Bomb: TRUE")
-            if round(next_state[0]*wrld.width()) == round(state[7]*wrld.width()) and round(next_state[1]*wrld.height()) == round(state[8]*wrld.height()):
+        # Penalty for doing redundant moves
+        if (round(old_state[0]*new_wrld.width()) == 0 and action == 2):
+            reward -= 0.2
+            # print("Agent tried to move into an unreachable cell: LEFT")
+        if (round(old_state[0]*new_wrld.width()) == new_wrld.width()-1 and action == 3):
+            reward -= 0.2
+            # print("Agent tried to move into an unreachable cell: RIGHT")
+        if (round(old_state[1]*new_wrld.height()) == 0 and action == 0):
+            reward -= 0.2
+            # print("Agent tried to move into an unreachable cell: UP")
+        if (round(old_state[1]*new_wrld.height()) == new_wrld.height()-1 and action == 1):
+            reward -= 0.2
+            # print("Agent tried to move into an unreachable cell: DOWN")
+        if (self.bomb_exists and action ==4):
+            reward -= 0.2
+            # print("Agent tried to place a bomb with a bomb already there: TRUE")
+        if round(old_state[1]*new_wrld.height()) < new_wrld.height() - 1:
+            if (new_wrld.wall_at(round(old_state[0]*new_wrld.width()),round(old_state[1]*new_wrld.height())+1) and action == 1):
                 reward -= 0.2
-                print("Last State at Bomb and stayed at Bomb: TRUE")
-            else: 
-                print("Last State at Bomb and stayed at Bomb: FALSE")
-        # penalty for going back to where bomb is located or being close to bomb
-        elif abs(round(state[0]*wrld.width()) - round(state[7]*wrld.width())) + abs(round(state[1]*wrld.height()) - round(state[8]*wrld.height())) == 1.0:
-            print("Last State not at Bomb, but in range of Bomb: TRUE")
-            if round(next_state[0]*wrld.width()) == round(state[7]*wrld.width()) and round(next_state[1]*wrld.height()) == round(state[8]*wrld.height()):
-                reward -= 0.2
-                print("Went back to bomb: TRUE")
-            else:
-                print("Went back to bomb: FALSE")
-                if abs(round(next_state[0]*wrld.width()) - round(state[7]*wrld.width())) + abs(round(next_state[1]*wrld.height()) - round(state[8]*wrld.height())) <= 1.0:
-                    reward -= 0.2
-                    print("Moved away completely: FALSE")
-                else:
-                    print("Moved away completely: TRUE")
-        else:
-            print("Last State at Bomb: FALSE")
+                # print("Agent tried to move into a wall: DOWN")
 
-        # # Extra penalty if a monster is dangerously close.
-        # if abs(round(next_state[4]*wrld.width())) + abs(round(next_state[5]*wrld.height())) < 3:
-        #     reward -= 2.0
-        #     print("Monster close: TRUE")
-        # else: 
-        #     print("Monster close: FALSE \n")
+        # checking the world for bombs
+        self.bomb_exists = False
+        for dx in range(new_wrld.width()-1):
+            for dy in range(new_wrld.height()-1):
+                if new_wrld.bomb_at(dx, dy):
+                    self.bomb_exists = True 
+                    break
+            if self.bomb_exists:
+                break
 
-        # Reward for moving closer to the exit. 
-        if abs(round(next_state[0]*wrld.width()) - round(next_state[2]*wrld.width())) + abs(round(next_state[1]*wrld.height()) - round(next_state[3]*wrld.height())) < abs(round(state[0]*wrld.width()) - round(state[2]*wrld.width())) + abs(round(state[1]*wrld.height()) - round(state[3]*wrld.height())):
-            reward += 0.5
-            print("Moved closer to exit: TRUE")
-        else:
-            reward -= 0.5
-            print("Moved closer to exit: FALSE")
+        # Reward for crossing each level of walls
+        old_y = round(old_state[1] * new_wrld.height())
+        new_y = round(next_state[1] * new_wrld.height())
 
+        for threshold in [4, 8, 12, 16]:
+            if old_y < threshold <= new_y and not self.crossed_levels[threshold]:
+                reward += 15.0  
+                self.crossed_levels[threshold] = True
+                # print(f"Crossed level {threshold} for the first time!")
+                        
+        # print(reward)
         return reward, done
 
-    # --- Experience replay helper ---
     def remember(self, state, action, reward, next_state, done):
-        self.__class__.memory.append((state, action, reward, next_state, done))
+        self.__class__.memory.append((state, action, reward, next_state, done, self.won))
 
     def train_model(self):
-        # if len(self.__class__.memory) < self.__class__.batch_size:
-        #     return  # Not enough samples to train.
-        if len(self.__class__.memory) >= self.__class__.batch_size:
-            batch = random.sample(self.__class__.memory, self.__class__.batch_size)
-            states, actions, rewards, next_states, dones = zip(*batch)
-            states = torch.tensor(np.array(states), dtype=torch.float32)
-            next_states = torch.tensor(np.array(next_states), dtype=torch.float32)
-            actions = torch.tensor(actions, dtype=torch.long)
-            rewards = torch.tensor(rewards, dtype=torch.float32)
-            dones = torch.tensor(dones, dtype=torch.bool)
-
-            # Compute Q-values and targets
-            q_values = self.__class__.model(states).gather(1, actions.unsqueeze(1)).squeeze(1)
-            next_q_values = self.__class__.model(next_states).max(1)[0]
-            target = rewards + self.__class__.gamma * next_q_values * (~dones)
-
-            #  Compute loss and optimize
-            loss = self.__class__.loss_fn(q_values, target.detach())
-            self.__class__.optimizer.zero_grad()
-            loss.backward()
-            self.__class__.optimizer.step()
-
-            # Decay epsilon
-            # Only decay epsilon once per episode, not per step
-            if len(self.__class__.memory) >= self.__class__.batch_size:
-                if self.__class__.epsilon > self.__class__.epsilon_min:
-                    self.__class__.epsilon *= self.__class__.epsilon_decay  # Slower decay
-
-            # Save model every 10 episodes
-            # if random.random() < 1 / self.__class__.target_update_freq:
-            #     self.__class__.target_model.load_state_dict(self.__class__.model.state_dict())
-            #     print("Target network updated!")
-
-            # if random.random() < 0.1:  # Approx every 10 episodes
-            #     torch.save(self.__class__.model.state_dict(), "dqn_bomberman.pth")
-            #     print("Model saved!")
-    
-    def wall_blocked(self, wrld):
-        """
-        Checks if there is a full horizontal wall line (excluding the outer boundaries)
-        that spans the width of the world.
+        if len(self.__class__.memory) < self.__class__.batch_size:
+            return
+        batch = random.sample(self.__class__.memory, self.__class__.batch_size)
+        states, actions, rewards, next_states, dones, wons = zip(*batch)
         
-        Returns:
-            True if at least one row (from y = 1 to y = wrld.height()-2) is completely 
-            filled with walls (for x in range(1, wrld.width()-1)), otherwise False.
-        """
-        for y in range(1, wrld.height() - 1):
-            if all(wrld.wall_at(x, y) for x in range(1, wrld.width() - 1)):
-                return True
-        return False
+        states = torch.tensor(np.array(states), dtype=torch.float32)
+        next_states = torch.tensor(np.array(next_states), dtype=torch.float32)
+        actions = torch.tensor(actions, dtype=torch.long)
+        rewards = torch.tensor(rewards, dtype=torch.float32)
+        dones = torch.tensor(dones, dtype=torch.bool)
+        wons = torch.tensor(wons, dtype=torch.bool)
 
-    # --- Main decision method (called each turn) ---
+
+        # Q(s_t, a_t) from current model
+        q_values = self.__class__.model(states)              # shape: [batch_size, output_dim]
+        q_values = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
+
+        # Double DQN logic:
+        next_action_online = self.__class__.model(next_states).argmax(1)  # shape: [batch_size]
+        next_q_vals_target = self.__class__.target_model(next_states)
+        target_for_next_state = next_q_vals_target.gather(1, next_action_online.unsqueeze(1)).squeeze(1)
+
+        # 3) If done, no future reward; else gamma * target_for_next_state
+        not_done_mask = ~dones
+        target = rewards + self.__class__.gamma * target_for_next_state * not_done_mask
+
+        #Compute MSE loss
+        loss = self.__class__.loss_fn(q_values, target.detach())
+
+        # Optimize
+        self.__class__.optimizer.zero_grad()
+        loss.backward()
+        self.__class__.optimizer.step()
+
+        # Update global step and maybe update target network
+        self.__class__.global_training_steps += 1
+        if self.__class__.global_training_steps % self.__class__.target_update_freq == 0:
+            # Copy weights from model to target_model
+            self.__class__.target_model.load_state_dict(self.__class__.model.state_dict())
+
+        # Epsilon decay
+        if self.__class__.epsilon > self.__class__.epsilon_min:
+            self.__class__.epsilon *= self.__class__.epsilon_decay  
+
+        # Occasionally save model
+        if random.random() < 0.1:
+            torch.save(self.__class__.model.state_dict(), "dqn_bomberman.pth")
+
+
     def do(self, wrld):
-        # Get current state.
-        state = self.get_state(wrld)
-        
-        # If we have a recorded previous state-action, form a transition.
-        if self.last_state is not None:
-            reward, done = self.get_reward(wrld, self.last_state, state, self.last_action)
-            self.remember(self.last_state, self.last_action, reward, state, done)
-            self.train_model()
-            # If the episode is done (exit reached or explosion hit), reset our saved state.
-            if done:
-                self.last_state = None
-                self.last_action = None
-                return
-            print(reward)
-        
-        # Epsilon-greedy policy: choose a random action with probability epsilon.
+        # Get the "current state" as your basis for picking an action
+        current_state = self.get_state(wrld)
+
+        # Epsilon-greedy action selection
         if random.random() < self.__class__.epsilon:
             action = random.randint(0, self.__class__.output_dim - 1)
         else:
             with torch.no_grad():
-                state_tensor = torch.tensor(state).unsqueeze(0)
+                state_tensor = torch.tensor(current_state).unsqueeze(0)
                 q_vals = self.__class__.model(state_tensor)
                 action = torch.argmax(q_vals).item()
-        
-        # Save state and action for the next transition update.
-        self.last_state = state
-        self.last_action = action
-        
-        # Map the chosen action to the in-game command.
-        # Actions: 0: up, 1: down, 2: left, 3: right, 4: stay, 5: bomb.
+
+        # SIMULATE that action in a cloned world
+        temp_world = SensedWorld.from_world(wrld)
+        me_in_clone = temp_world.me(self)
+
+        if me_in_clone is not None:
+            # Apply the chosen action to the clone
+            if action == 0:   # move up
+                me_in_clone.move(0, -1)
+                # print("Action 0, Moved Up")
+            elif action == 1: # move down
+                me_in_clone.move(0, 1)
+                # print("Action 1, Moved Down")
+            elif action == 2: # move left
+                me_in_clone.move(-1, 0)
+                # print("Action 2, Moved Left")
+            elif action == 3: # move right
+                me_in_clone.move(1, 0)
+                # print("Action 3, Moved Right")
+            elif action == 4: # place bomb + stay
+                me_in_clone.place_bomb()
+                me_in_clone.move(0, 0)
+                # print("Action 4, Placed Bomb")
+
+
+        # Now step that cloned world forward to get the real next state + events
+        new_world, events = temp_world.next()
+
+        # Build a state vector from this new_world
+        next_state = None
+        me_after_step = new_world.me(self)
+        if me_after_step is not None:
+            old_real_x, old_real_y = self.x, self.y
+            self.x, self.y = me_after_step.x, me_after_step.y
+            next_state = self.get_state(new_world)
+            # restore real x,y
+            self.x, self.y = old_real_x, old_real_y
+        else:
+            next_state = current_state.copy()
+
+        # Compute the reward for this transition
+        reward, done = self.get_reward(
+            old_state=current_state,
+            next_state=next_state,
+            events=events,
+            new_wrld=new_world,
+            action=action
+        )
+
+        # 6) Store in replay buffer
+        self.remember(current_state, action, reward, next_state, done)
+        self.train_model()
+
+        # 7) If not done (didn't die or exit), actually perform the move in real wrld
         if action == 0:
             self.move(0, -1)
         elif action == 1:
@@ -339,7 +401,11 @@ class TestCharacter(CharacterEntity):
         elif action == 3:
             self.move(1, 0)
         elif action == 4:
-            self.move(0, 0)
-        elif action == 5:
             self.place_bomb()
-            self.move(0,0)
+            self.move(0, 0)
+
+        # 8) Save our last_state/last_action if you want to do 
+        #    "start-of-next-turn" updating in the future, 
+        #    but we've essentially already stored the transition right now.
+        self.last_state = next_state
+        self.last_action = action

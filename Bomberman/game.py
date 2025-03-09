@@ -96,7 +96,7 @@ class Game:
         if wait is 0:
             def step():
                 pygame.event.clear()
-                input("Press Enter to continue or CTRL-C to stop...")
+                input(" ")
         else:
             def step():
                 pygame.time.wait(abs(wait))
